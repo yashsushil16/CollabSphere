@@ -5,6 +5,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({});
   const [peerId, setPeerId] = useState('');
+  const [isPeerOpen, setIsPeerOpen] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -46,16 +47,31 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     };
   }, []);
 
-  // Initiate an immediate WebRTC call to another participant in the room
+  // Initiate a WebRTC call to another participant in the room with auto-retry
   const connectToPeer = useCallback((targetSpeakerId, targetSpeakerName) => {
     if (!peerRef.current || !targetSpeakerId || targetSpeakerId === speakerId) return;
-    if (peersRef.current[targetSpeakerId]) return; // Call already in progress or connected
+
+    // If call already active with live remote stream, skip duplicate call
+    if (peersRef.current[targetSpeakerId] && remoteStreams[targetSpeakerId]?.stream) {
+      return;
+    }
 
     const activeStream = streamRef.current || localStream;
     if (!activeStream) return;
 
-    console.log(`[WebRTC Calling Peer]: ${targetSpeakerId} (${targetSpeakerName})`);
+    // Ensure local video tracks are enabled before calling
+    activeStream.getVideoTracks().forEach((track) => {
+      track.enabled = true;
+    });
+
+    console.log(`[WebRTC Initiating Call to Peer]: ${targetSpeakerId} (${targetSpeakerName})`);
     try {
+      // Close previous failed call if any
+      if (peersRef.current[targetSpeakerId]) {
+        try { peersRef.current[targetSpeakerId].close(); } catch (e) {}
+        delete peersRef.current[targetSpeakerId];
+      }
+
       const call = peerRef.current.call(targetSpeakerId, activeStream, {
         metadata: { speakerName },
       });
@@ -63,13 +79,25 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
       if (call) {
         peersRef.current[targetSpeakerId] = call;
 
-        call.on('stream', (remoteStream) => {
-          console.log(`[WebRTC Connected] Received remote stream from ${targetSpeakerName}`);
+        const handleRemoteStream = (remoteStream) => {
+          console.log(`[WebRTC Call Connected] Stream received from ${targetSpeakerName}`, remoteStream.getTracks());
           setRemoteStreams((prev) => ({
             ...prev,
             [targetSpeakerId]: { stream: remoteStream, speakerName: targetSpeakerName || 'Participant' },
           }));
-        });
+
+          // Attach track event listeners for dynamic mute/unmute status updates
+          remoteStream.getTracks().forEach((track) => {
+            track.onunmute = () => {
+              setRemoteStreams((prev) => ({ ...prev }));
+            };
+            track.onmute = () => {
+              setRemoteStreams((prev) => ({ ...prev }));
+            };
+          });
+        };
+
+        call.on('stream', handleRemoteStream);
 
         call.on('close', () => {
           delete peersRef.current[targetSpeakerId];
@@ -88,9 +116,9 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     } catch (err) {
       console.warn('Error calling target peer:', err.message);
     }
-  }, [speakerId, speakerName, localStream]);
+  }, [speakerId, speakerName, localStream, remoteStreams]);
 
-  // Initialize PeerJS room connection with Google's fast public STUN iceServers
+  // Initialize PeerJS room connection with Google & Twilio public STUN iceServers
   useEffect(() => {
     if (!roomId) return;
 
@@ -118,6 +146,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
             { urls: 'stun:stun2.l.google.com:19302' },
             { urls: 'stun:stun3.l.google.com:19302' },
             { urls: 'stun:stun4.l.google.com:19302' },
+            { urls: 'stun:global.stun.twilio.com:3478' },
           ],
         },
       });
@@ -125,7 +154,8 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
 
       peer.on('open', (id) => {
         setPeerId(id);
-        console.log('[PeerJS Initialized] My Peer ID:', id);
+        setIsPeerOpen(true);
+        console.log('[PeerJS Initialized & Open] My Peer ID:', id);
       });
 
       // Handle incoming WebRTC calls from other participants
@@ -146,14 +176,30 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
           }
         }
 
+        // Ensure video tracks are enabled
+        if (streamToAnswer) {
+          streamToAnswer.getVideoTracks().forEach((track) => {
+            track.enabled = true;
+          });
+        }
+
         call.answer(streamToAnswer);
 
         call.on('stream', (remoteStream) => {
-          console.log('[WebRTC Stream Received] Remote stream connected from:', call.peer);
+          console.log('[WebRTC Stream Received] Remote stream connected from:', call.peer, remoteStream.getTracks());
           setRemoteStreams((prev) => ({
             ...prev,
             [call.peer]: { stream: remoteStream, speakerName: call.metadata?.speakerName || 'Participant' },
           }));
+
+          remoteStream.getTracks().forEach((track) => {
+            track.onunmute = () => {
+              setRemoteStreams((prev) => ({ ...prev }));
+            };
+            track.onmute = () => {
+              setRemoteStreams((prev) => ({ ...prev }));
+            };
+          });
         });
 
         call.on('close', () => {
@@ -174,6 +220,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
         peerRef.current = null;
       }
       peersRef.current = {};
+      setIsPeerOpen(false);
     };
   }, [roomId, speakerId]);
 
@@ -229,6 +276,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     localStream,
     remoteStreams,
     peerId,
+    isPeerOpen,
     isCameraOn,
     isMicOn,
     isScreenSharing,

@@ -88,7 +88,7 @@ export default function App() {
 
   // Request permissions & WebRTC peer calls
   const {
-    localStream, remoteStreams, isCameraOn, isMicOn, isScreenSharing, permissionError,
+    localStream, remoteStreams, isPeerOpen, isCameraOn, isMicOn, isScreenSharing, permissionError,
     connectToPeer, toggleCamera, toggleMicrophone, toggleScreenShare,
   } = useWebRTC(joinedRoom ? roomId : null, speakerId, speakerName);
 
@@ -99,16 +99,22 @@ export default function App() {
 
   const { audioLevel } = useAudioStream(socket, joinedRoom ? roomId : null, speakerId, speakerName, isMicOn);
 
-  // Auto-connect WebRTC calls to all participants in room
+  // Auto-connect WebRTC calls to all participants in room with retry loop
   useEffect(() => {
-    if (joinedRoom && participants.length > 0) {
+    if (!joinedRoom || !isPeerOpen || participants.length === 0) return;
+
+    const connectAll = () => {
       participants.forEach((p) => {
         if (p.speakerId && p.speakerId !== speakerId) {
           connectToPeer(p.speakerId, p.speakerName);
         }
       });
-    }
-  }, [joinedRoom, participants, speakerId, connectToPeer]);
+    };
+
+    connectAll();
+    const retryInterval = setInterval(connectAll, 2500);
+    return () => clearInterval(retryInterval);
+  }, [joinedRoom, isPeerOpen, participants, speakerId, connectToPeer]);
 
   // Attach local stream to preview video when on landing page
   useEffect(() => {

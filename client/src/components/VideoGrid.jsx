@@ -115,7 +115,7 @@ function RemoteTile({ speakerName, remoteObj }) {
 
   return (
     <div className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm">
-      {/* Video element — always mounted if stream exists */}
+      {/* Video element — mounted if stream exists */}
       {stream && (
         <video
           ref={(el) => {
@@ -124,11 +124,15 @@ function RemoteTile({ speakerName, remoteObj }) {
               el.srcObject = stream;
               el.muted = false;
               el.volume = 1.0;
-              el.play().catch((err) => console.warn('Remote video play notice:', err.message));
+              el.play()
+                .then(() => setIsVideoPlaying(true))
+                .catch((err) => console.warn('Remote video play notice:', err.message));
             }
           }}
           onPlaying={() => setIsVideoPlaying(true)}
+          onCanPlay={() => setIsVideoPlaying(true)}
           onLoadedData={() => setIsVideoPlaying(true)}
+          onLoadedMetadata={() => setIsVideoPlaying(true)}
           autoPlay
           playsInline
           className={`w-full h-full object-cover transition-opacity duration-200 ${
@@ -137,7 +141,7 @@ function RemoteTile({ speakerName, remoteObj }) {
         />
       )}
 
-      {/* Participant Avatar Overlay (shown when stream is connecting, video hasn't rendered yet, or camera is off) */}
+      {/* Participant Avatar Overlay (shown when stream is connecting or video has not rendered) */}
       {!isVideoPlaying && (
         <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)] z-0">
           <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] border border-[var(--border)] flex items-center justify-center relative">
