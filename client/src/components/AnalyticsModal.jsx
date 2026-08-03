@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Download, Clock, CheckSquare } from 'lucide-react';
+import { X, Download, Clock, CheckSquare, Home } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import ReactMarkdown from 'react-markdown';
 import confetti from 'canvas-confetti';
 
 const COLORS = ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4'];
 
-export default function AnalyticsModal({ analyticsData, isOpen, onClose }) {
+export default function AnalyticsModal({ analyticsData, isOpen, onClose, onGoHome }) {
   const [actionItems, setActionItems] = useState([]);
 
   useEffect(() => {
@@ -28,6 +28,11 @@ export default function AnalyticsModal({ analyticsData, isOpen, onClose }) {
     a.href = url;
     a.download = `meeting-summary-${Date.now()}.md`;
     a.click();
+  };
+
+  const handleReturnHome = () => {
+    if (onClose) onClose();
+    if (onGoHome) onGoHome();
   };
 
   return (
@@ -51,7 +56,15 @@ export default function AnalyticsModal({ analyticsData, isOpen, onClose }) {
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-[var(--text-1)]">Meeting Summary</h2>
             <div className="flex items-center gap-2">
-              <button onClick={exportReport} className="px-3.5 py-1.5 rounded-lg bg-accent-blue hover:bg-blue-600 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
+              <button
+                onClick={handleReturnHome}
+                className="px-3 py-1.5 rounded-lg bg-[var(--canvas)] hover:bg-[var(--surface-hover)] border border-[var(--border)] text-[var(--text-1)] text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                title="Return to home screen to join or create a new meeting"
+              >
+                <Home className="w-3.5 h-3.5 text-accent-blue" />
+                <span>Return to Home</span>
+              </button>
+              <button onClick={exportReport} className="px-3 py-1.5 rounded-lg bg-accent-blue hover:bg-blue-600 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors">
                 <Download className="w-3.5 h-3.5" /> Export
               </button>
               <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text-3)] transition-colors">
@@ -126,6 +139,17 @@ export default function AnalyticsModal({ analyticsData, isOpen, onClose }) {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Footer Navigation Button */}
+          <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
+            <span className="text-xs text-[var(--text-3)]">Session ended successfully.</span>
+            <button
+              onClick={handleReturnHome}
+              className="px-4 py-2 rounded-lg bg-accent-blue hover:bg-blue-600 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Home className="w-3.5 h-3.5" /> Return to Home Screen
+            </button>
           </div>
         </motion.div>
       </motion.div>

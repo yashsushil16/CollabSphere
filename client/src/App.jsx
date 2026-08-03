@@ -139,6 +139,17 @@ export default function App() {
     setIsAnalyticsModalOpen(true);
   };
 
+  const handleGoHome = () => {
+    setJoinedRoom(false);
+    setIsAnalyticsModalOpen(false);
+    if (window.history.pushState) {
+      const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.history.pushState({ path: cleanUrl }, '', cleanUrl);
+    }
+    setStartMode('create');
+    setRoomId(generateRandomRoomCode());
+  };
+
   useEffect(() => {
     if (analyticsData) setIsAnalyticsModalOpen(true);
   }, [analyticsData]);
@@ -453,7 +464,7 @@ export default function App() {
 
       {/* Modals */}
       <KnowledgeBaseModal roomId={roomId} isOpen={isKnowledgeModalOpen} onClose={() => setIsKnowledgeModalOpen(false)} />
-      <AnalyticsModal analyticsData={analyticsData} isOpen={isAnalyticsModalOpen} onClose={() => setIsAnalyticsModalOpen(false)} />
+      <AnalyticsModal analyticsData={analyticsData} isOpen={isAnalyticsModalOpen} onClose={() => setIsAnalyticsModalOpen(false)} onGoHome={handleGoHome} />
     </div>
   );
 }
