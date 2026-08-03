@@ -35,7 +35,7 @@ export default function App() {
   const [speakerName, setSpeakerName] = useState('');
   const [joinedRoom, setJoinedRoom] = useState(false);
   const [activeTab, setActiveTab] = useState('chat');
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false); // Closed on mobile by default to show video grid right away
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false); // Closed on mobile by default so video grid is 100% visible
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -192,7 +192,7 @@ export default function App() {
   }
 
   /* ========================================================
-     MEETING ROOM — Always Visible Video Grid + Drawer Bottom Sheet
+     MEETING ROOM — Always Visible Video Grid + Elevated Controls
      ======================================================== */
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden select-none relative">
@@ -203,8 +203,8 @@ export default function App() {
       />
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        {/* Video Stage — ALWAYS VISIBLE on screen */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative pb-16 md:pb-0">
+        {/* Video Stage — ALWAYS VISIBLE on stage */}
         <div className="flex-1 flex flex-col overflow-hidden relative w-full h-full min-h-0">
           <VideoGrid
             localStream={localStream}
@@ -217,7 +217,7 @@ export default function App() {
         </div>
 
         {/* Drawer Panel:
-            - On Mobile (<768px): Bottom Sheet Overlay (h-[55vh] bottom-0 left-0 right-0) so Top Video remains visible!
+            - On Mobile (<768px): Bottom Sheet Overlay (h-[48vh] bottom-0 left-0 right-0) so Top Video remains visible!
             - On Desktop (>=768px): Side-by-Side Panel (w-80 lg:w-96)
         */}
         <AnimatePresence>
@@ -227,7 +227,7 @@ export default function App() {
               animate={{ y: 0, mdX: 0, opacity: 1 }}
               exit={{ y: '100%', mdX: '100%', opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="fixed md:relative bottom-0 left-0 right-0 md:inset-auto z-40 md:z-auto h-[55vh] md:h-full w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-[var(--border)] bg-[var(--surface)] md:bg-[var(--canvas)] flex flex-col overflow-hidden shrink-0 shadow-2xl md:shadow-none rounded-t-2xl md:rounded-none"
+              className="fixed md:relative bottom-0 left-0 right-0 md:inset-auto z-40 md:z-auto h-[48vh] md:h-full w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-[var(--border)] bg-[var(--surface)] md:bg-[var(--canvas)] flex flex-col overflow-hidden shrink-0 shadow-2xl md:shadow-none rounded-t-2xl md:rounded-none"
             >
               {/* Drawer Header with Close Button */}
               <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)]">
@@ -269,7 +269,7 @@ export default function App() {
               </div>
 
               {/* Tab Content */}
-              <div className="flex-1 overflow-hidden mt-1 pb-14 md:pb-0">
+              <div className="flex-1 overflow-hidden mt-1 pb-16 md:pb-0">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={activeTab}

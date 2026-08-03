@@ -40,14 +40,14 @@ export default function ControlBar({
   };
 
   return (
-    <div className="absolute bottom-3 sm:bottom-5 left-1/2 -translate-x-1/2 z-30 select-none max-w-[96vw] sm:max-w-none safe-area-bottom">
-      <div className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-2xl bg-[var(--surface)] border border-[var(--border)] shadow-lg backdrop-blur-md">
+    <div className="fixed bottom-6 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 select-none max-w-[95vw] sm:max-w-none">
+      <div className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-2xl bg-[var(--surface)] border border-[var(--border)] shadow-2xl backdrop-blur-lg">
         {/* Mic */}
         <ControlButton
           onClick={onToggleMic}
           active={isMicOn}
           activeColor="bg-[var(--surface-hover)]"
-          inactiveColor="bg-accent-red/12"
+          inactiveColor="bg-accent-red/15"
           title={isMicOn ? 'Mute' : 'Unmute'}
         >
           {isMicOn ? (
@@ -72,7 +72,7 @@ export default function ControlBar({
           onClick={onToggleCamera}
           active={isCameraOn}
           activeColor="bg-[var(--surface-hover)]"
-          inactiveColor="bg-accent-red/12"
+          inactiveColor="bg-accent-red/15"
           title={isCameraOn ? 'Stop Video' : 'Start Video'}
         >
           {isCameraOn ? (
@@ -82,13 +82,13 @@ export default function ControlBar({
           )}
         </ControlButton>
 
-        {/* Screen Share (Hidden on small mobile screens if unsupported) */}
+        {/* Screen Share (Hidden on small mobile screens) */}
         <div className="hidden sm:block">
           <ControlButton
             onClick={onToggleScreenShare}
             active={!isScreenSharing}
             activeColor="bg-[var(--surface-hover)]"
-            inactiveColor="bg-accent-blue/12"
+            inactiveColor="bg-accent-blue/15"
             title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
           >
             <Monitor className={`w-4 h-4 sm:w-[18px] sm:h-[18px] ${isScreenSharing ? 'text-accent-blue' : 'text-[var(--text-1)]'}`} />
@@ -116,7 +116,7 @@ export default function ControlBar({
           onClick={onToggleDrawer}
           active={!isDrawerOpen}
           activeColor="bg-[var(--surface-hover)]"
-          inactiveColor="bg-accent-blue/12"
+          inactiveColor="bg-accent-blue/15"
           title="Toggle Panel"
         >
           <MessageSquare className={`w-4 h-4 sm:w-[18px] sm:h-[18px] ${isDrawerOpen ? 'text-accent-blue' : 'text-[var(--text-1)]'}`} />
@@ -137,7 +137,7 @@ export default function ControlBar({
         <motion.button
           onClick={onEndRoom}
           whileTap={{ scale: 0.94 }}
-          className="px-3 sm:px-5 py-2 rounded-pill bg-accent-red hover:bg-red-600 text-white text-xs font-semibold flex items-center gap-1 transition-colors duration-100 touch-manipulation"
+          className="px-3 sm:px-4 py-2 rounded-xl bg-accent-red hover:bg-red-600 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors duration-100 touch-manipulation shadow-sm"
         >
           <PhoneOff className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           <span className="text-[11px] sm:text-xs">Leave</span>
