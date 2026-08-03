@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 export default function ControlBar({
+  roomId,
   isMicOn,
   isCameraOn,
   isScreenSharing,
@@ -33,10 +34,12 @@ export default function ControlBar({
   const isSpeaking = isMicOn && audioLevel > 15;
   const [copied, setCopied] = useState(false);
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
+  const copyMeetingCodeAndLink = () => {
+    const code = roomId || 'architecture-review';
+    const fullUrl = `${window.location.origin}/?room=${code}`;
+    navigator.clipboard.writeText(fullUrl);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 2500);
   };
 
   return (
@@ -82,7 +85,7 @@ export default function ControlBar({
           )}
         </ControlButton>
 
-        {/* Screen Share (Hidden on small mobile screens) */}
+        {/* Screen Share */}
         <div className="hidden sm:block">
           <ControlButton
             onClick={onToggleScreenShare}
@@ -102,10 +105,13 @@ export default function ControlBar({
           <BookOpen className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-[var(--text-1)]" />
         </ControlButton>
 
-        {/* Copy invite */}
-        <ControlButton onClick={copyLink} title="Copy Invite Link">
+        {/* Copy Meeting Code & Invite Link */}
+        <ControlButton onClick={copyMeetingCodeAndLink} title="Copy Meeting Code & Share Link">
           {copied ? (
-            <Check className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-accent-green" />
+            <span className="flex items-center gap-1 text-[11px] font-medium text-accent-green">
+              <Check className="w-4 h-4 text-accent-green" />
+              <span className="hidden sm:inline">Copied</span>
+            </span>
           ) : (
             <Copy className="w-4 h-4 sm:w-[18px] sm:h-[18px] text-[var(--text-1)]" />
           )}
@@ -117,7 +123,7 @@ export default function ControlBar({
           active={!isDrawerOpen}
           activeColor="bg-[var(--surface-hover)]"
           inactiveColor="bg-accent-blue/15"
-          title="Toggle Panel"
+          title="Toggle Workspace Panel"
         >
           <MessageSquare className={`w-4 h-4 sm:w-[18px] sm:h-[18px] ${isDrawerOpen ? 'text-accent-blue' : 'text-[var(--text-1)]'}`} />
         </ControlButton>
