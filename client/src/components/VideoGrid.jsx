@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
-import { User, MicOff } from 'lucide-react';
+import { User, MicOff, Loader2 } from 'lucide-react';
 
 export default function VideoGrid({
   localStream,
   remoteStreams = {},
+  participants = [],
+  speakerId,
   speakerName,
   isCameraOn,
   isMicOn,
@@ -11,7 +13,7 @@ export default function VideoGrid({
 }) {
   const localVideoRef = useRef(null);
 
-  // Attach local stream to video element (MUTED so user doesn't hear their own echo)
+  // Attach local stream to video element
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
@@ -22,16 +24,19 @@ export default function VideoGrid({
     }
   }, [localStream, isCameraOn]);
 
-  const remotePeerIds = Object.keys(remoteStreams);
+  // Combine remoteStreams + participants list for instant 0-delay grid tiling on join
+  const otherParticipants = (participants || []).filter((p) => p.speakerId && p.speakerId !== speakerId);
+  const totalOtherCount = Math.max(Object.keys(remoteStreams).length, otherParticipants.length);
+
   const isSpeaking = audioLevel > 15;
 
   return (
     <div className="flex-1 w-full h-full p-2 sm:p-4 flex items-center justify-center overflow-hidden select-none min-h-0">
       <div
         className={`w-full h-full grid gap-2 sm:gap-3 items-center justify-center ${
-          remotePeerIds.length === 0
+          totalOtherCount === 0
             ? 'grid-cols-1 max-w-4xl'
-            : remotePeerIds.length === 1
+            : totalOtherCount === 1
             ? 'grid-cols-1 sm:grid-cols-2 max-w-6xl'
             : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl'
         }`}
@@ -78,23 +83,35 @@ export default function VideoGrid({
           </div>
         </div>
 
-        {/* Remote participant video tiles */}
-        {remotePeerIds.map((peerId) => (
-          <RemoteTile key={peerId} remoteObj={remoteStreams[peerId]} />
-        ))}
+        {/* Instant Remote Tiles: Render immediately on participant join */}
+        {otherParticipants.length > 0
+          ? otherParticipants.map((participant) => (
+              <RemoteTile
+                key={participant.speakerId}
+                speakerName={participant.speakerName}
+                remoteObj={remoteStreams[participant.speakerId]}
+              />
+            ))
+          : Object.keys(remoteStreams).map((peerId) => (
+              <RemoteTile
+                key={peerId}
+                speakerName={remoteStreams[peerId]?.speakerName}
+                remoteObj={remoteStreams[peerId]}
+              />
+            ))}
       </div>
     </div>
   );
 }
 
-function RemoteTile({ remoteObj }) {
+function RemoteTile({ speakerName, remoteObj }) {
   const videoRef = useRef(null);
 
-  // Attach remote stream to video element — UNMUTED so speaker plays remote participant's voice!
+  // Attach remote stream to video element
   useEffect(() => {
     if (videoRef.current && remoteObj?.stream) {
       videoRef.current.srcObject = remoteObj.stream;
-      videoRef.current.muted = false; // Enable audio so participant voice is heard
+      videoRef.current.muted = false; // Enable audio playback
       videoRef.current.volume = 1.0;
       videoRef.current.play().catch((err) => {
         console.warn('Remote video playback notice:', err.message);
@@ -102,20 +119,26 @@ function RemoteTile({ remoteObj }) {
     }
   }, [remoteObj]);
 
+  const nameToDisplay = speakerName || remoteObj?.speakerName || 'Participant';
+
   return (
     <div className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm">
       {remoteObj?.stream ? (
         <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4">
-          <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] flex items-center justify-center">
+          <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] flex items-center justify-center relative">
             <User className="w-7 h-7 sm:w-10 sm:h-10 text-[var(--text-3)]" />
+            <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-accent-blue/15 text-accent-blue animate-spin">
+              <Loader2 className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <p className="text-xs sm:text-sm font-medium text-[var(--text-2)]">{remoteObj?.speakerName || 'Participant'}</p>
+          <p className="text-xs sm:text-sm font-medium text-[var(--text-2)]">{nameToDisplay}</p>
+          <span className="text-[10px] text-[var(--text-3)] font-mono">Connecting video...</span>
         </div>
       )}
       <div className="absolute bottom-2 left-2 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white backdrop-blur-sm z-10">
-        {remoteObj?.speakerName || 'Participant'}
+        {nameToDisplay}
       </div>
     </div>
   );

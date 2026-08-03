@@ -46,7 +46,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     };
   }, []);
 
-  // Initiate a WebRTC call to another participant in the room
+  // Initiate an immediate WebRTC call to another participant in the room
   const connectToPeer = useCallback((targetSpeakerId, targetSpeakerName) => {
     if (!peerRef.current || !targetSpeakerId || targetSpeakerId === speakerId) return;
     if (peersRef.current[targetSpeakerId]) return; // Call already in progress or connected
@@ -90,7 +90,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     }
   }, [speakerId, speakerName, localStream]);
 
-  // Initialize PeerJS room connection once joinedRoom / roomId is active
+  // Initialize PeerJS room connection with Google's fast public STUN iceServers
   useEffect(() => {
     if (!roomId) return;
 
@@ -111,6 +111,15 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
 
       const peer = new Peer(speakerId || `usr_${Math.random().toString(36).substring(7)}`, {
         debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+          ],
+        },
       });
       peerRef.current = peer;
 

@@ -315,7 +315,6 @@ export default function App() {
                   value={roomId}
                   onChange={(e) => {
                     const val = e.target.value;
-                    // Extract code if user pastes a full URL
                     if (val.includes('room=')) {
                       const match = val.match(/room=([^&]+)/);
                       setRoomId(match ? match[1] : val);
@@ -360,6 +359,8 @@ export default function App() {
           <VideoGrid
             localStream={localStream}
             remoteStreams={remoteStreams}
+            participants={participants}
+            speakerId={speakerId}
             speakerName={speakerName}
             isCameraOn={isCameraOn}
             isMicOn={isMicOn}
