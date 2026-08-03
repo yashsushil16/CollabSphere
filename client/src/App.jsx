@@ -35,7 +35,7 @@ export default function App() {
   const [speakerName, setSpeakerName] = useState('');
   const [joinedRoom, setJoinedRoom] = useState(false);
   const [activeTab, setActiveTab] = useState('chat');
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false); // Default closed on mobile for clean video grid
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false); // Closed on mobile by default to show video grid right away
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -47,7 +47,7 @@ export default function App() {
     document.documentElement.classList.toggle('light', !isDarkMode);
   }, [isDarkMode]);
 
-  // Open drawer by default on desktop (> 768px)
+  // Open drawer by default on desktop (>= 768px)
   useEffect(() => {
     if (window.innerWidth >= 768) {
       setIsDrawerOpen(true);
@@ -192,7 +192,7 @@ export default function App() {
   }
 
   /* ========================================================
-     MEETING ROOM — Mobile Responsive Layout & Drawer
+     MEETING ROOM — Always Visible Video Grid + Drawer Bottom Sheet
      ======================================================== */
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden select-none relative">
@@ -203,9 +203,9 @@ export default function App() {
       />
 
       {/* Main area */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Video stage */}
-        <div className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        {/* Video Stage — ALWAYS VISIBLE on screen */}
+        <div className="flex-1 flex flex-col overflow-hidden relative w-full h-full min-h-0">
           <VideoGrid
             localStream={localStream}
             remoteStreams={remoteStreams}
@@ -216,34 +216,38 @@ export default function App() {
           />
         </div>
 
-        {/* Right drawer — Fullscreen on mobile (<768px), sidebar on desktop (>=768px) */}
+        {/* Drawer Panel:
+            - On Mobile (<768px): Bottom Sheet Overlay (h-[55vh] bottom-0 left-0 right-0) so Top Video remains visible!
+            - On Desktop (>=768px): Side-by-Side Panel (w-80 lg:w-96)
+        */}
         <AnimatePresence>
           {isDrawerOpen && (
             <motion.aside
-              initial={{ x: '100%', opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: '100%', opacity: 0 }}
+              initial={{ y: '100%', mdX: '100%', opacity: 0 }}
+              animate={{ y: 0, mdX: 0, opacity: 1 }}
+              exit={{ y: '100%', mdX: '100%', opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="fixed md:relative inset-0 md:inset-auto right-0 top-12 sm:top-14 md:top-0 bottom-0 z-40 md:z-auto w-full md:w-80 lg:w-96 border-l border-[var(--border)] bg-[var(--canvas)] flex flex-col overflow-hidden shrink-0 shadow-2xl md:shadow-none"
+              className="fixed md:relative bottom-0 left-0 right-0 md:inset-auto z-40 md:z-auto h-[55vh] md:h-full w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-[var(--border)] bg-[var(--surface)] md:bg-[var(--canvas)] flex flex-col overflow-hidden shrink-0 shadow-2xl md:shadow-none rounded-t-2xl md:rounded-none"
             >
-              {/* Mobile Drawer Header with Close Button */}
-              <div className="flex md:hidden items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)]">
+              {/* Drawer Header with Close Button */}
+              <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)]">
                 <span className="text-xs font-semibold text-[var(--text-1)]">Workspace Panel</span>
                 <button
                   onClick={() => setIsDrawerOpen(false)}
-                  className="p-1.5 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text-2)]"
+                  className="p-1 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text-2)] transition-colors"
+                  title="Close Panel"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Tab bar with sliding pill */}
-              <div className="relative flex p-1 mx-3 mt-3 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
+              {/* Tab Bar with Sliding Pill */}
+              <div className="relative flex p-1 mx-3 mt-3 rounded-lg bg-[var(--canvas)] md:bg-[var(--surface)] border border-[var(--border)]">
                 {TABS.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`relative flex-1 py-2.5 md:py-1.5 rounded-md text-xs md:text-[11px] font-semibold flex items-center justify-center gap-1.5 z-10 transition-colors duration-150 touch-manipulation ${
+                    className={`relative flex-1 py-2 md:py-1.5 rounded-md text-xs md:text-[11px] font-semibold flex items-center justify-center gap-1.5 z-10 transition-colors duration-150 touch-manipulation ${
                       activeTab === tab.id
                         ? 'text-[var(--text-1)]'
                         : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
@@ -264,8 +268,8 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Tab content */}
-              <div className="flex-1 overflow-hidden mt-1 pb-16 md:pb-0">
+              {/* Tab Content */}
+              <div className="flex-1 overflow-hidden mt-1 pb-14 md:pb-0">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={activeTab}
@@ -305,7 +309,7 @@ export default function App() {
         onToggleScreenShare={toggleScreenShare}
         onToggleTheme={() => setIsDarkMode((p) => !p)}
         onToggleDrawer={() => setIsDrawerOpen((p) => !p)}
-        onOpenKnowledgeModal={() => setIsKnowledgeModalOpen(false)}
+        onOpenKnowledgeModal={() => setIsKnowledgeModalOpen(true)}
         onEndRoom={handleEnd}
       />
 
