@@ -2,8 +2,10 @@ import { geminiModel } from '../config/gemini.js';
 import groqClient from '../config/groq.js';
 import { getDomainKnowledgeContext } from './vectorService.js';
 
+let geminiCooldownUntil = 0;
+
 /**
- * Audit real transcript statements or chat messages using Gemini 2.0 Flash or Groq Llama 3
+ * Audit real transcript statements or chat messages using Groq Llama 3 (Fast, high-rate-limit) with Gemini fallback
  */
 export async function auditStatement(statement, speakerName, roomId) {
   if (!statement || statement.trim().length < 5) {
@@ -28,28 +30,7 @@ Return strictly valid JSON with no markdown codeblocks:
 }
 `;
 
-  if (geminiModel) {
-    try {
-      const result = await geminiModel.generateContent(prompt);
-      const rawText = result.response.text().trim();
-      const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-      const parsed = JSON.parse(cleaned);
-
-      return {
-        flagId: `flag_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        speakerName,
-        statement: statement,
-        verdict: parsed.verdict || (parsed.isFlagged ? 'FALSE' : 'TRUE'),
-        correction: parsed.correction || '',
-        confidence: parsed.confidence || 0.9,
-        isFlagged: Boolean(parsed.isFlagged),
-        timestamp: Date.now(),
-      };
-    } catch (err) {
-      console.warn('[Gemini Fact Audit Warning, falling back to Groq]:', err.message);
-    }
-  }
-
+  // 1. Primary: Use Groq Llama 3 (Sub-200ms, high free-tier rate limits)
   if (groqClient) {
     try {
       const completion = await groqClient.chat.completions.create({
@@ -74,7 +55,35 @@ Return strictly valid JSON with no markdown codeblocks:
         timestamp: Date.now(),
       };
     } catch (err) {
-      console.error('[Groq Audit Error]:', err.message);
+      console.warn('[Groq Audit Warning, falling back to Gemini]:', err.message);
+    }
+  }
+
+  // 2. Secondary: Gemini 2.0 Flash (with 60s cooldown on 429 rate limit)
+  if (geminiModel && Date.now() > geminiCooldownUntil) {
+    try {
+      const result = await geminiModel.generateContent(prompt);
+      const rawText = result.response.text().trim();
+      const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      return {
+        flagId: `flag_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        speakerName,
+        statement: statement,
+        verdict: parsed.verdict || (parsed.isFlagged ? 'FALSE' : 'TRUE'),
+        correction: parsed.correction || '',
+        confidence: parsed.confidence || 0.9,
+        isFlagged: Boolean(parsed.isFlagged),
+        timestamp: Date.now(),
+      };
+    } catch (err) {
+      if (err.message.includes('429') || err.message.includes('Quota')) {
+        console.warn('[Gemini Rate Limit 429] Entering 60s cooldown. Using Groq/Rule engine.');
+        geminiCooldownUntil = Date.now() + 60000;
+      } else {
+        console.warn('[Gemini Fact Audit Error]:', err.message);
+      }
     }
   }
 
