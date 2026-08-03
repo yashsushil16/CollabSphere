@@ -5,7 +5,7 @@ export default function VideoGrid({
   localStream,
   remoteStreams = {},
   participants = [],
-  speakerId,
+  socketId,
   speakerName,
   isCameraOn,
   isMicOn,
@@ -24,14 +24,16 @@ export default function VideoGrid({
     }
   }, [localStream, isCameraOn]);
 
-  // Combine remoteStreams + participants list for instant 0-delay grid tiling on join
-  const otherParticipants = (participants || []).filter((p) => p.speakerId && p.speakerId !== speakerId);
+  // Filter out self from participants list using socketId
+  const otherParticipants = (participants || []).filter(
+    (p) => p.socketId && p.socketId !== socketId
+  );
 
   // Fallback to remoteStreams keys if participants list is not yet populated
   const remotePeerIds = Object.keys(remoteStreams);
   const displayPeers = otherParticipants.length > 0
     ? otherParticipants
-    : remotePeerIds.map((id) => ({ speakerId: id, speakerName: remoteStreams[id]?.speakerName }));
+    : remotePeerIds.map((id) => ({ socketId: id, speakerName: remoteStreams[id]?.speakerName }));
 
   const totalOtherCount = displayPeers.length;
   const isSpeaking = audioLevel > 15;
@@ -92,9 +94,9 @@ export default function VideoGrid({
         {/* Remote participant video tiles */}
         {displayPeers.map((participant) => (
           <RemoteTile
-            key={participant.speakerId}
+            key={participant.socketId}
             speakerName={participant.speakerName}
-            remoteObj={remoteStreams[participant.speakerId]}
+            remoteObj={remoteStreams[participant.socketId]}
           />
         ))}
       </div>

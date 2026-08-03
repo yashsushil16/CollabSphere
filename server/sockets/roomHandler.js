@@ -82,15 +82,20 @@ export function registerRoomHandlers(io, socket) {
     socket.speakerName = speakerName;
 
     const room = getOrCreateRoom(roomId);
-    room.participants.set(socket.id, { speakerId, speakerName, joinedAt: Date.now() });
+    const participantInfo = { socketId: socket.id, speakerId, speakerName, joinedAt: Date.now() };
+    room.participants.set(socket.id, participantInfo);
     if (!room.speakerTalkTime[speakerName]) {
       room.speakerTalkTime[speakerName] = 0;
     }
 
-    console.log(`[Room ${roomId}] Participant joined: ${speakerName} (${speakerId})`);
+    console.log(`[Room ${roomId}] Participant joined: ${speakerName} (Socket: ${socket.id}, Speaker: ${speakerId})`);
 
     // Notify room participants
-    io.to(roomId).emit('PARTICIPANT_LIST_UPDATED', Array.from(room.participants.values()));
+    const participantsList = Array.from(room.participants.values());
+    io.to(roomId).emit('PARTICIPANT_LIST_UPDATED', participantsList);
+
+    // Notify existing participants of the new user to initiate WebRTC P2P mesh
+    socket.to(roomId).emit('NEW_USER_JOINED', participantInfo);
 
     // Start 15-second Async Hallucination Auditor loop if not already running
     if (!room.auditTimer) {
@@ -100,7 +105,35 @@ export function registerRoomHandlers(io, socket) {
     }
   });
 
-  // 2A. DIRECT TEXT TRANSCRIPT FROM BROWSER WEBSPEECH API (0 Latency, High Precision)
+  // 1B. NATIVE WEBRTC SIGNALING RELAYS (Socket.IO P2P Handshake)
+  socket.on('WEBRTC_SEND_OFFER', ({ targetSocketId, offer, speakerName }) => {
+    console.log(`[WebRTC Relay] Offer from ${socket.id} -> ${targetSocketId}`);
+    io.to(targetSocketId).emit('WEBRTC_RECEIVE_OFFER', {
+      senderSocketId: socket.id,
+      senderSpeakerId: socket.speakerId,
+      senderSpeakerName: speakerName || socket.speakerName || 'Participant',
+      offer,
+    });
+  });
+
+  socket.on('WEBRTC_SEND_ANSWER', ({ targetSocketId, answer }) => {
+    console.log(`[WebRTC Relay] Answer from ${socket.id} -> ${targetSocketId}`);
+    io.to(targetSocketId).emit('WEBRTC_RECEIVE_ANSWER', {
+      senderSocketId: socket.id,
+      answer,
+    });
+  });
+
+  socket.on('WEBRTC_SEND_ICE', ({ targetSocketId, candidate }) => {
+    if (candidate) {
+      io.to(targetSocketId).emit('WEBRTC_RECEIVE_ICE', {
+        senderSocketId: socket.id,
+        candidate,
+      });
+    }
+  });
+
+  // 2A. DIRECT TEXT TRANSCRIPT FROM BROWSER WEBSPEECH API
   socket.on('TRANSCRIPT_TEXT', async (data) => {
     const { roomId, speakerId, speakerName, text, timestamp } = data;
     const room = getOrCreateRoom(roomId);
@@ -148,7 +181,6 @@ export function registerRoomHandlers(io, socket) {
     });
 
     const lowerMsg = messageText.toLowerCase().trim();
-    // Auto-trigger bot if @bot is mentioned OR if message looks like a question or prompt
     const isBotTrigger =
       lowerMsg.includes('@bot') ||
       lowerMsg.startsWith('bot') ||
@@ -162,7 +194,6 @@ export function registerRoomHandlers(io, socket) {
       io.to(roomId).emit('BOT_TYPING', { isTyping: true });
 
       try {
-        // Step A: Check Upstash Redis L1 Cache (<10ms)
         const cachedAnswer = await getCachedQuery(roomId, queryPrompt);
         if (cachedAnswer) {
           io.to(roomId).emit('BOT_TYPING', { isTyping: false });
@@ -177,7 +208,6 @@ export function registerRoomHandlers(io, socket) {
           return;
         }
 
-        // Step B: Fetch recent transcripts (last 15 chunks) + Qdrant semantic search
         const recentTranscripts = (room.transcriptLogs || [])
           .slice(-15)
           .map((c) => `[${c.speakerName}]: "${c.text}"`)
@@ -196,7 +226,6 @@ ${vectorContextText || 'None.'}`;
 
         let botReplyText = '';
 
-        // Step C: Query Groq Llama 3.1 8B or Gemini 1.5 Flash
         if (groqClient) {
           const completion = await groqClient.chat.completions.create({
             messages: [
@@ -216,7 +245,6 @@ ${fullContext}`,
           const result = await geminiModel.generateContent(`Answer based on context:\n${fullContext}\n\nQuestion: ${queryPrompt}`);
           botReplyText = result.response.text();
         } else {
-          // Fallback response from recent transcript buffer
           const lastLog = room.transcriptLogs[room.transcriptLogs.length - 1];
           botReplyText = lastLog
             ? `Recent transcript from ${lastLog.speakerName}: "${lastLog.text}"`
@@ -231,7 +259,6 @@ ${fullContext}`,
           isBot: true,
         };
 
-        // Step D: Save result to L1 Cache
         await setCachedQuery(roomId, queryPrompt, botMsg, 300);
 
         io.to(roomId).emit('BOT_TYPING', { isTyping: false });
@@ -250,7 +277,6 @@ ${fullContext}`,
 
     console.log(`[Room ${roomId}] End room session triggered.`);
 
-    // Clear periodic audit timer
     if (room.auditTimer) {
       clearInterval(room.auditTimer);
       room.auditTimer = null;
@@ -278,6 +304,7 @@ ${fullContext}`,
       const room = roomStateMap.get(socket.roomId);
       room.participants.delete(socket.id);
       io.to(socket.roomId).emit('PARTICIPANT_LIST_UPDATED', Array.from(room.participants.values()));
+      io.to(socket.roomId).emit('USER_LEFT', { socketId: socket.id });
 
       if (room.participants.size === 0) {
         console.log(`[Room ${socket.roomId}] All participants left.`);
@@ -293,7 +320,6 @@ async function runAsyncHallucinationAudit(io, roomId) {
   const room = roomStateMap.get(roomId);
   if (!room || room.pendingAuditLogs.length === 0) return;
 
-  // Drain pending audit queue
   const logsToAudit = room.pendingAuditLogs.splice(0, room.pendingAuditLogs.length);
 
   for (const item of logsToAudit) {

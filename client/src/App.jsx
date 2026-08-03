@@ -86,35 +86,19 @@ export default function App() {
 
   const speakerId = useMemo(() => `usr_${Math.random().toString(36).substring(7)}`, []);
 
-  // Request permissions & WebRTC peer calls
-  const {
-    localStream, remoteStreams, isPeerOpen, isCameraOn, isMicOn, isScreenSharing, permissionError,
-    connectToPeer, toggleCamera, toggleMicrophone, toggleScreenShare,
-  } = useWebRTC(joinedRoom ? roomId : null, speakerId, speakerName);
-
+  // Initialize Socket.IO connection
   const {
     socket, isConnected, participants, transcripts, chatMessages,
     factCheckFlags, isBotTyping, analyticsData, sendChatMessage, endRoomSession,
   } = useSocket(joinedRoom ? roomId : null, speakerId, speakerName);
 
+  // Native WebRTC P2P Mesh over Socket.IO Signaling
+  const {
+    localStream, remoteStreams, isCameraOn, isMicOn, isScreenSharing, permissionError,
+    toggleCamera, toggleMicrophone, toggleScreenShare,
+  } = useWebRTC(joinedRoom ? roomId : null, speakerId, speakerName, socket);
+
   const { audioLevel } = useAudioStream(socket, joinedRoom ? roomId : null, speakerId, speakerName, isMicOn);
-
-  // Auto-connect WebRTC calls to all participants in room with retry loop
-  useEffect(() => {
-    if (!joinedRoom || !isPeerOpen || participants.length === 0) return;
-
-    const connectAll = () => {
-      participants.forEach((p) => {
-        if (p.speakerId && p.speakerId !== speakerId) {
-          connectToPeer(p.speakerId, p.speakerName);
-        }
-      });
-    };
-
-    connectAll();
-    const retryInterval = setInterval(connectAll, 2500);
-    return () => clearInterval(retryInterval);
-  }, [joinedRoom, isPeerOpen, participants, speakerId, connectToPeer]);
 
   // Attach local stream to preview video when on landing page
   useEffect(() => {
@@ -366,7 +350,7 @@ export default function App() {
             localStream={localStream}
             remoteStreams={remoteStreams}
             participants={participants}
-            speakerId={speakerId}
+            socketId={socket?.id}
             speakerName={speakerName}
             isCameraOn={isCameraOn}
             isMicOn={isMicOn}
