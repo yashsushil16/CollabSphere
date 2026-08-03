@@ -10,9 +10,9 @@ const geminiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim()
 if (geminiKey && geminiKey !== 'your_gemini_api_key_here') {
   try {
     genAI = new GoogleGenerativeAI(geminiKey);
-    // Use gemini-2.0-flash or gemini-1.5-pro
-    geminiModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    console.log('[Gemini SDK] Gemini 2.0 Flash initialized successfully with API Key.');
+    // Use gemini-1.5-flash (Standard free tier model)
+    geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    console.log('[Gemini SDK] Gemini 1.5 Flash initialized successfully with API Key.');
   } catch (err) {
     console.warn('[Gemini SDK] Failed to initialize:', err.message);
   }
