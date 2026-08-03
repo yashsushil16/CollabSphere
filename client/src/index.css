@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 /* ==========================================================
-   COLLABSPHERE — MINIMALIST ENTERPRISE DESIGN SYSTEM
+   COLLABSPHERE — MINIMALIST ENTERPRISE MOBILE & DESKTOP SYSTEM
    ========================================================== */
 
 :root {
@@ -30,10 +30,19 @@
   --text-3: #6B7280;
 }
 
-html, body, #root {
+html {
   height: 100%;
+  height: 100dvh;
+}
+
+body, #root {
+  height: 100%;
+  height: 100dvh;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -45,8 +54,17 @@ body {
   transition: background-color 200ms ease, color 200ms ease;
 }
 
+/* Safe area insets for notched mobile devices (iPhone X/11/12/13/14/15/16) */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* --- Scrollbars --- */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }

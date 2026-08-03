@@ -19,9 +19,9 @@ import {
   Sun,
   Moon,
   Camera,
-  Mic,
   AlertCircle,
   CheckCircle2,
+  X,
 } from 'lucide-react';
 
 const TABS = [
@@ -35,7 +35,7 @@ export default function App() {
   const [speakerName, setSpeakerName] = useState('');
   const [joinedRoom, setJoinedRoom] = useState(false);
   const [activeTab, setActiveTab] = useState('chat');
-  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false); // Default closed on mobile for clean video grid
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -46,6 +46,13 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDarkMode);
     document.documentElement.classList.toggle('light', !isDarkMode);
   }, [isDarkMode]);
+
+  // Open drawer by default on desktop (> 768px)
+  useEffect(() => {
+    if (window.innerWidth >= 768) {
+      setIsDrawerOpen(true);
+    }
+  }, []);
 
   const speakerId = useMemo(() => `usr_${Math.random().toString(36).substring(7)}`, []);
 
@@ -84,16 +91,16 @@ export default function App() {
   }, [analyticsData]);
 
   /* ========================================================
-     LANDING — Clean join form + Immediate Camera Preview
+     LANDING — Mobile-optimized Join Form + Camera Preview
      ======================================================== */
   if (!joinedRoom) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 select-none">
+      <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 select-none overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
-          className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 space-y-5 shadow-lg"
+          className="w-full max-w-md bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5 sm:p-6 space-y-4 sm:space-y-5 shadow-lg my-auto"
         >
           <div className="flex items-center justify-between">
             <h1 className="text-base font-semibold text-[var(--text-1)]">CollabSphere</h1>
@@ -106,7 +113,7 @@ export default function App() {
           </div>
 
           {/* Camera Preview / Permission Box */}
-          <div className="relative rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--canvas)] h-44 flex items-center justify-center">
+          <div className="relative rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--canvas)] h-40 sm:h-48 flex items-center justify-center">
             {localStream && isCameraOn ? (
               <video
                 ref={previewVideoRef}
@@ -117,19 +124,19 @@ export default function App() {
               />
             ) : permissionError ? (
               <div className="p-4 text-center space-y-2">
-                <AlertCircle className="w-8 h-8 text-accent-red mx-auto" />
+                <AlertCircle className="w-7 h-7 text-accent-red mx-auto" />
                 <p className="text-xs text-accent-red font-medium">Camera/Microphone Permission Denied</p>
                 <p className="text-[11px] text-[var(--text-3)]">Please allow media permissions in your browser address bar to join calls.</p>
               </div>
             ) : (
               <div className="p-4 text-center space-y-2">
-                <Camera className="w-8 h-8 text-[var(--text-3)] mx-auto animate-pulse" />
+                <Camera className="w-7 h-7 text-[var(--text-3)] mx-auto animate-pulse" />
                 <p className="text-xs text-[var(--text-2)] font-medium">Requesting camera & microphone permissions...</p>
               </div>
             )}
 
             {/* Permissions Status Pill */}
-            <div className="absolute bottom-2.5 left-2.5 px-2.5 py-1 rounded bg-black/70 text-[10px] font-medium text-white flex items-center gap-1.5">
+            <div className="absolute bottom-2.5 left-2.5 px-2.5 py-1 rounded bg-black/70 text-[10px] font-medium text-white flex items-center gap-1.5 backdrop-blur-sm">
               {localStream ? (
                 <>
                   <CheckCircle2 className="w-3 h-3 text-accent-green" />
@@ -150,7 +157,7 @@ export default function App() {
                 value={speakerName}
                 onChange={(e) => setSpeakerName(e.target.value)}
                 placeholder="Enter your display name"
-                className="w-full px-3 py-2.5 rounded-lg bg-[var(--canvas)] border border-[var(--border)] focus:border-accent-blue text-xs text-[var(--text-1)] placeholder-[var(--text-3)] outline-none transition-colors"
+                className="w-full px-3 py-3 rounded-lg bg-[var(--canvas)] border border-[var(--border)] focus:border-accent-blue text-xs text-[var(--text-1)] placeholder-[var(--text-3)] outline-none transition-colors"
               />
             </div>
 
@@ -167,14 +174,14 @@ export default function App() {
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
                 placeholder="e.g. architecture-review"
-                className="w-full px-3 py-2.5 rounded-lg bg-[var(--canvas)] border border-[var(--border)] focus:border-accent-blue font-mono text-xs text-[var(--text-1)] placeholder-[var(--text-3)] outline-none transition-colors"
+                className="w-full px-3 py-3 rounded-lg bg-[var(--canvas)] border border-[var(--border)] focus:border-accent-blue font-mono text-xs text-[var(--text-1)] placeholder-[var(--text-3)] outline-none transition-colors"
               />
             </div>
 
             <motion.button
               type="submit"
               whileTap={{ scale: 0.97 }}
-              className="w-full py-2.5 rounded-lg bg-accent-blue hover:bg-blue-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+              className="w-full py-3 rounded-lg bg-accent-blue hover:bg-blue-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors touch-manipulation shadow-sm"
             >
               Join Meeting <ArrowRight className="w-3.5 h-3.5" />
             </motion.button>
@@ -185,7 +192,7 @@ export default function App() {
   }
 
   /* ========================================================
-     MEETING ROOM — Header + Video + Bottom Bar + Side Drawer
+     MEETING ROOM — Mobile Responsive Layout & Drawer
      ======================================================== */
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden select-none relative">
@@ -209,23 +216,34 @@ export default function App() {
           />
         </div>
 
-        {/* Right drawer */}
+        {/* Right drawer — Fullscreen on mobile (<768px), sidebar on desktop (>=768px) */}
         <AnimatePresence>
           {isDrawerOpen && (
             <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 360, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              initial={{ x: '100%', opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: '100%', opacity: 0 }}
               transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="h-full border-l border-[var(--border)] bg-[var(--canvas)] flex flex-col overflow-hidden shrink-0"
+              className="fixed md:relative inset-0 md:inset-auto right-0 top-12 sm:top-14 md:top-0 bottom-0 z-40 md:z-auto w-full md:w-80 lg:w-96 border-l border-[var(--border)] bg-[var(--canvas)] flex flex-col overflow-hidden shrink-0 shadow-2xl md:shadow-none"
             >
+              {/* Mobile Drawer Header with Close Button */}
+              <div className="flex md:hidden items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)]">
+                <span className="text-xs font-semibold text-[var(--text-1)]">Workspace Panel</span>
+                <button
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text-2)]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
               {/* Tab bar with sliding pill */}
-              <div className="relative flex p-1.5 mx-3 mt-3 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
+              <div className="relative flex p-1 mx-3 mt-3 rounded-lg bg-[var(--surface)] border border-[var(--border)]">
                 {TABS.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`relative flex-1 py-1.5 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1.5 z-10 transition-colors duration-150 ${
+                    className={`relative flex-1 py-2.5 md:py-1.5 rounded-md text-xs md:text-[11px] font-semibold flex items-center justify-center gap-1.5 z-10 transition-colors duration-150 touch-manipulation ${
                       activeTab === tab.id
                         ? 'text-[var(--text-1)]'
                         : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
@@ -247,7 +265,7 @@ export default function App() {
               </div>
 
               {/* Tab content */}
-              <div className="flex-1 overflow-hidden mt-1">
+              <div className="flex-1 overflow-hidden mt-1 pb-16 md:pb-0">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={activeTab}
@@ -287,7 +305,7 @@ export default function App() {
         onToggleScreenShare={toggleScreenShare}
         onToggleTheme={() => setIsDarkMode((p) => !p)}
         onToggleDrawer={() => setIsDrawerOpen((p) => !p)}
-        onOpenKnowledgeModal={() => setIsKnowledgeModalOpen(true)}
+        onOpenKnowledgeModal={() => setIsKnowledgeModalOpen(false)}
         onEndRoom={handleEnd}
       />
 

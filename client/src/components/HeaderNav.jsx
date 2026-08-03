@@ -18,26 +18,26 @@ export default function HeaderNav({ roomId, participantCount }) {
   };
 
   return (
-    <header className="h-14 px-5 flex items-center justify-between border-b border-[var(--border)] select-none shrink-0">
+    <header className="h-12 sm:h-14 px-3 sm:px-5 flex items-center justify-between border-b border-[var(--border)] select-none shrink-0 safe-area-top">
       {/* Left — Room info */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-semibold text-[var(--text-1)]">CollabSphere</span>
-        <ChevronRight className="w-3.5 h-3.5 text-[var(--text-3)]" />
-        <span className="text-sm text-[var(--text-2)] font-mono flex items-center gap-1.5">
-          <Hash className="w-3.5 h-3.5" />
-          {roomId || 'meeting'}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 max-w-[65%]">
+        <span className="text-xs sm:text-sm font-semibold text-[var(--text-1)] shrink-0">CollabSphere</span>
+        <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[var(--text-3)] shrink-0" />
+        <span className="text-xs sm:text-sm text-[var(--text-2)] font-mono flex items-center gap-1 truncate">
+          <Hash className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+          <span className="truncate">{roomId || 'meeting'}</span>
         </span>
       </div>
 
       {/* Right — Duration & participants */}
-      <div className="flex items-center gap-4 text-xs text-[var(--text-2)]">
-        <span className="flex items-center gap-1.5 font-mono">
+      <div className="flex items-center gap-3 sm:gap-4 text-xs text-[var(--text-2)] shrink-0">
+        <span className="flex items-center gap-1 sm:gap-1.5 font-mono">
           <Clock className="w-3.5 h-3.5" />
-          {fmt(secondsElapsed)}
+          <span>{fmt(secondsElapsed)}</span>
         </span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1 sm:gap-1.5">
           <Users className="w-3.5 h-3.5" />
-          {participantCount}
+          <span>{participantCount}</span>
         </span>
       </div>
     </header>
