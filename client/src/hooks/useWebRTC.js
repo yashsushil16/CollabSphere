@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import Peer from 'peerjs';
 
 export const useWebRTC = (roomId, speakerId, speakerName) => {
@@ -12,6 +12,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
 
   const peerRef = useRef(null);
   const streamRef = useRef(null);
+  const peersRef = useRef({});
 
   // Request camera and microphone permissions IMMEDIATELY when the site opens
   useEffect(() => {
@@ -45,6 +46,50 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     };
   }, []);
 
+  // Initiate a WebRTC call to another participant in the room
+  const connectToPeer = useCallback((targetSpeakerId, targetSpeakerName) => {
+    if (!peerRef.current || !targetSpeakerId || targetSpeakerId === speakerId) return;
+    if (peersRef.current[targetSpeakerId]) return; // Call already in progress or connected
+
+    const activeStream = streamRef.current || localStream;
+    if (!activeStream) return;
+
+    console.log(`[WebRTC Calling Peer]: ${targetSpeakerId} (${targetSpeakerName})`);
+    try {
+      const call = peerRef.current.call(targetSpeakerId, activeStream, {
+        metadata: { speakerName },
+      });
+
+      if (call) {
+        peersRef.current[targetSpeakerId] = call;
+
+        call.on('stream', (remoteStream) => {
+          console.log(`[WebRTC Connected] Received remote stream from ${targetSpeakerName}`);
+          setRemoteStreams((prev) => ({
+            ...prev,
+            [targetSpeakerId]: { stream: remoteStream, speakerName: targetSpeakerName || 'Participant' },
+          }));
+        });
+
+        call.on('close', () => {
+          delete peersRef.current[targetSpeakerId];
+          setRemoteStreams((prev) => {
+            const next = { ...prev };
+            delete next[targetSpeakerId];
+            return next;
+          });
+        });
+
+        call.on('error', (err) => {
+          console.warn('[WebRTC Peer Call Error]:', err);
+          delete peersRef.current[targetSpeakerId];
+        });
+      }
+    } catch (err) {
+      console.warn('Error calling target peer:', err.message);
+    }
+  }, [speakerId, speakerName, localStream]);
+
   // Initialize PeerJS room connection once joinedRoom / roomId is active
   useEffect(() => {
     if (!roomId) return;
@@ -71,10 +116,12 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
 
       peer.on('open', (id) => {
         setPeerId(id);
-        console.log('[PeerJS Initialized] Peer ID:', id);
+        console.log('[PeerJS Initialized] My Peer ID:', id);
       });
 
+      // Handle incoming WebRTC calls from other participants
       peer.on('call', (call) => {
+        console.log('[WebRTC Incoming Call] Answering call from:', call.peer);
         if (activeStream) {
           call.answer(activeStream);
         }
@@ -84,13 +131,24 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
             [call.peer]: { stream: remoteStream, speakerName: call.metadata?.speakerName || 'Participant' },
           }));
         });
+        call.on('close', () => {
+          setRemoteStreams((prev) => {
+            const next = { ...prev };
+            delete next[call.peer];
+            return next;
+          });
+        });
       });
     };
 
     initPeer();
 
     return () => {
-      if (peerRef.current) peerRef.current.destroy();
+      if (peerRef.current) {
+        peerRef.current.destroy();
+        peerRef.current = null;
+      }
+      peersRef.current = {};
     };
   }, [roomId, speakerId]);
 
@@ -150,6 +208,7 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
     isMicOn,
     isScreenSharing,
     permissionError,
+    connectToPeer,
     toggleCamera,
     toggleMicrophone,
     toggleScreenShare,

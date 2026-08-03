@@ -11,10 +11,11 @@ export default function VideoGrid({
 }) {
   const localVideoRef = useRef(null);
 
-  // Attach local stream to video element
+  // Attach local stream to video element (MUTED so user doesn't hear their own echo)
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.muted = true;
       localVideoRef.current.play().catch((err) => {
         console.warn('Local video playback notice:', err.message);
       });
@@ -89,9 +90,12 @@ export default function VideoGrid({
 function RemoteTile({ remoteObj }) {
   const videoRef = useRef(null);
 
+  // Attach remote stream to video element — UNMUTED so speaker plays remote participant's voice!
   useEffect(() => {
     if (videoRef.current && remoteObj?.stream) {
       videoRef.current.srcObject = remoteObj.stream;
+      videoRef.current.muted = false; // Enable audio so participant voice is heard
+      videoRef.current.volume = 1.0;
       videoRef.current.play().catch((err) => {
         console.warn('Remote video playback notice:', err.message);
       });

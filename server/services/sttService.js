@@ -30,6 +30,13 @@ const SILENCE_HALLUCINATIONS = [
   'ignore background noise',
   'transcribe only spoken human words',
   'ignore background noise silence or nonspeech sounds',
+  'okay',
+  'ok',
+  'um',
+  'uh',
+  'ah',
+  'hmm',
+  'hmmm',
 ];
 
 /**
@@ -75,7 +82,7 @@ export async function transcribeAudioChunk(arrayBuffer, speakerName = "Participa
       }
 
       const isHallucination = SILENCE_HALLUCINATIONS.some(
-        (phrase) => lowerText === phrase || lowerText === phrase + '.' || lowerText.includes(phrase)
+        (phrase) => lowerText === phrase || lowerText === phrase + '.'
       );
 
       if (!isHallucination) {

@@ -41,8 +41,8 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
           
           setAudioLevel(currentLevel);
 
-          // Voice Activity Threshold (> 14 is speech, background noise/ambient is typically < 8)
-          if (currentLevel > 14) {
+          // Higher Voice Activity Threshold (> 20 is human speech; background tapping/ambient is < 15)
+          if (currentLevel > 20) {
             speechSamplesCountRef.current += 1;
           }
 
@@ -53,8 +53,8 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
         const recordChunk = () => {
           if (!stream || !isMicOn || !isComponentMounted.current) return;
 
-          // Check speech energy sample count during this interval
-          const speechDetectedInWindow = speechSamplesCountRef.current >= 3;
+          // Check speech energy sample count during this interval (at least 4 speech frames)
+          const speechDetectedInWindow = speechSamplesCountRef.current >= 4;
           // Reset speech samples counter for next window
           speechSamplesCountRef.current = 0;
 

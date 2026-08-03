@@ -86,10 +86,10 @@ export default function App() {
 
   const speakerId = useMemo(() => `usr_${Math.random().toString(36).substring(7)}`, []);
 
-  // Request permissions immediately on site mount
+  // Request permissions & WebRTC peer calls
   const {
     localStream, remoteStreams, isCameraOn, isMicOn, isScreenSharing, permissionError,
-    toggleCamera, toggleMicrophone, toggleScreenShare,
+    connectToPeer, toggleCamera, toggleMicrophone, toggleScreenShare,
   } = useWebRTC(joinedRoom ? roomId : null, speakerId, speakerName);
 
   const {
@@ -98,6 +98,17 @@ export default function App() {
   } = useSocket(joinedRoom ? roomId : null, speakerId, speakerName);
 
   const { audioLevel } = useAudioStream(socket, joinedRoom ? roomId : null, speakerId, speakerName, isMicOn);
+
+  // Auto-connect WebRTC calls to all participants in room
+  useEffect(() => {
+    if (joinedRoom && participants.length > 0) {
+      participants.forEach((p) => {
+        if (p.speakerId && p.speakerId !== speakerId) {
+          connectToPeer(p.speakerId, p.speakerName);
+        }
+      });
+    }
+  }, [joinedRoom, participants, speakerId, connectToPeer]);
 
   // Attach local stream to preview video when on landing page
   useEffect(() => {
