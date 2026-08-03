@@ -129,17 +129,33 @@ export const useWebRTC = (roomId, speakerId, speakerName) => {
       });
 
       // Handle incoming WebRTC calls from other participants
-      peer.on('call', (call) => {
+      peer.on('call', async (call) => {
         console.log('[WebRTC Incoming Call] Answering call from:', call.peer);
-        if (activeStream) {
-          call.answer(activeStream);
+        let streamToAnswer = streamRef.current || activeStream;
+
+        if (!streamToAnswer) {
+          try {
+            streamToAnswer = await navigator.mediaDevices.getUserMedia({
+              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+              audio: true,
+            });
+            streamRef.current = streamToAnswer;
+            setLocalStream(streamToAnswer);
+          } catch (e) {
+            console.warn('Could not acquire media stream to answer call:', e.message);
+          }
         }
+
+        call.answer(streamToAnswer);
+
         call.on('stream', (remoteStream) => {
+          console.log('[WebRTC Stream Received] Remote stream connected from:', call.peer);
           setRemoteStreams((prev) => ({
             ...prev,
             [call.peer]: { stream: remoteStream, speakerName: call.metadata?.speakerName || 'Participant' },
           }));
         });
+
         call.on('close', () => {
           setRemoteStreams((prev) => {
             const next = { ...prev };

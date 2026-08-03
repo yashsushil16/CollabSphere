@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { User, MicOff, Loader2 } from 'lucide-react';
 
 export default function VideoGrid({
@@ -105,36 +105,62 @@ export default function VideoGrid({
 }
 
 function RemoteTile({ speakerName, remoteObj }) {
-  const videoRef = useRef(null);
+  const [hasLiveVideo, setHasLiveVideo] = useState(false);
 
-  // Attach remote stream to video element
   useEffect(() => {
-    if (videoRef.current && remoteObj?.stream) {
-      videoRef.current.srcObject = remoteObj.stream;
-      videoRef.current.muted = false; // Enable audio playback
-      videoRef.current.volume = 1.0;
-      videoRef.current.play().catch((err) => {
-        console.warn('Remote video playback notice:', err.message);
-      });
+    if (!remoteObj?.stream) {
+      setHasLiveVideo(false);
+      return;
     }
+
+    const stream = remoteObj.stream;
+    const checkVideoTracks = () => {
+      const videoTracks = stream.getVideoTracks();
+      const isLive = videoTracks.length > 0 && videoTracks.some((t) => t.enabled && t.readyState === 'live');
+      setHasLiveVideo(isLive);
+    };
+
+    checkVideoTracks();
+
+    stream.onaddtrack = checkVideoTracks;
+    stream.onremovetrack = checkVideoTracks;
+
+    const interval = setInterval(checkVideoTracks, 1000);
+    return () => clearInterval(interval);
   }, [remoteObj]);
 
   const nameToDisplay = speakerName || remoteObj?.speakerName || 'Participant';
 
   return (
     <div className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm">
-      {remoteObj?.stream ? (
-        <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+      {hasLiveVideo && remoteObj?.stream ? (
+        <video
+          ref={(el) => {
+            if (el && remoteObj?.stream && el.srcObject !== remoteObj.stream) {
+              el.srcObject = remoteObj.stream;
+              el.muted = false;
+              el.volume = 1.0;
+              el.play().catch((err) => console.warn('Remote video play error:', err.message));
+            }
+          }}
+          autoPlay
+          playsInline
+          className="w-full h-full object-cover"
+        />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4">
           <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] flex items-center justify-center relative">
             <User className="w-7 h-7 sm:w-10 sm:h-10 text-[var(--text-3)]" />
-            <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-accent-blue/15 text-accent-blue animate-spin">
-              <Loader2 className="w-3.5 h-3.5" />
-            </div>
+            {!remoteObj?.stream && (
+              <div className="absolute -bottom-1 -right-1 p-1 rounded-full bg-accent-blue/15 text-accent-blue animate-spin">
+                <Loader2 className="w-3.5 h-3.5" />
+              </div>
+            )}
           </div>
           <p className="text-xs sm:text-sm font-medium text-[var(--text-2)]">{nameToDisplay}</p>
-          <span className="text-[10px] text-[var(--text-3)] font-mono">Connecting video...</span>
+          <span className="text-[10px] text-[var(--text-3)] font-mono">
+            {remoteObj?.stream ? 'Camera is Off' : 'Connecting video...'}
+          </span>
         </div>
       )}
       <div className="absolute bottom-2 left-2 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white backdrop-blur-sm z-10">
