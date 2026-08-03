@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================
+   COLLABSPHERE — MINIMALIST ENTERPRISE DESIGN SYSTEM
+   ========================================================== */
+
+:root {
+  --canvas: #F8F9FA;
+  --surface: #FFFFFF;
+  --surface-hover: #F3F4F6;
+  --border: #E5E7EB;
+  --border-subtle: #F0F1F3;
+  --text-1: #111827;
+  --text-2: #6B7280;
+  --text-3: #9CA3AF;
+}
+
+.dark {
+  --canvas: #121316;
+  --surface: #1A1C20;
+  --surface-hover: #22252A;
+  --border: #2A2D34;
+  --border-subtle: #23262D;
+  --text-1: #F3F4F6;
+  --text-2: #9CA3AF;
+  --text-3: #6B7280;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--canvas);
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* --- Scrollbars --- */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+::selection { background: rgba(59, 130, 246, 0.2); }

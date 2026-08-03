@@ -1,0 +1,24 @@
+# Dependencies
+node_modules
+client/node_modules
+server/node_modules
+
+# Environment Variables & API Keys
+.env
+server/.env
+client/.env
+
+# Build outputs
+client/dist
+dist
+
+# Temporary files & Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.system_generated
+
+# System OS files
+.DS_Store
+Thumbs.db
