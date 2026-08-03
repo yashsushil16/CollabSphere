@@ -5,6 +5,8 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
   const [audioLevel, setAudioLevel] = useState(0);
   const isComponentMounted = useRef(true);
   const speechSamplesCountRef = useRef(0);
+  const webSpeechActiveRef = useRef(false);
+  const recentSentTextRef = useRef('');
 
   useEffect(() => {
     isComponentMounted.current = true;
@@ -13,6 +15,7 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
     let analyser;
     let recordInterval;
     let animationFrameId;
+    let recognition;
 
     const startAudioProcessing = async () => {
       if (!isMicOn || !socket || !roomId) {
@@ -24,7 +27,56 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        // Audio Context + Analyser for VAD (Voice Activity Detection)
+        // 1. Setup WebSpeech API (Native Browser Speech Recognition for instant 0-latency STT)
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event) => {
+              if (!isMicOn || !isComponentMounted.current) return;
+              for (let i = event.resultIndex; i < event.results.length; i++) {
+                if (event.results[i].isFinal) {
+                  const transcriptText = event.results[i][0].transcript.trim();
+                  if (transcriptText.length > 2 && transcriptText !== recentSentTextRef.current) {
+                    recentSentTextRef.current = transcriptText;
+                    speechSamplesCountRef.current += 5; // Mark high speech activity
+                    webSpeechActiveRef.current = true;
+
+                    console.log('[WebSpeech STT Recognized]:', transcriptText);
+                    socket.emit('TRANSCRIPT_TEXT', {
+                      roomId,
+                      speakerId,
+                      speakerName,
+                      text: transcriptText,
+                      timestamp: Date.now(),
+                    });
+                  }
+                }
+              }
+            };
+
+            recognition.onerror = (err) => {
+              console.warn('[WebSpeech API Warning]:', err.error);
+            };
+
+            recognition.onend = () => {
+              // Restart recognition if mic is still on
+              if (isMicOn && isComponentMounted.current) {
+                try { recognition.start(); } catch (e) {}
+              }
+            };
+
+            recognition.start();
+          } catch (e) {
+            console.warn('[WebSpeech API Init Notice]:', e.message);
+          }
+        }
+
+        // 2. Audio Context + Analyser for VAD (Voice Activity Detection)
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
@@ -41,8 +93,8 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
           
           setAudioLevel(currentLevel);
 
-          // Higher Voice Activity Threshold (> 20 is human speech; background tapping/ambient is < 15)
-          if (currentLevel > 20) {
+          // Voice Activity Threshold (> 16 is speech energy)
+          if (currentLevel > 16) {
             speechSamplesCountRef.current += 1;
           }
 
@@ -50,18 +102,19 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
         };
         updateAudioLevel();
 
+        // 3. Fallback audio chunk recorder for Groq Whisper
         const recordChunk = () => {
           if (!stream || !isMicOn || !isComponentMounted.current) return;
 
-          // Check speech energy sample count during this interval (at least 4 speech frames)
-          const speechDetectedInWindow = speechSamplesCountRef.current >= 4;
-          // Reset speech samples counter for next window
+          // Check if speech was detected during this 3-second window
+          const speechDetectedInWindow = speechSamplesCountRef.current >= 3;
           speechSamplesCountRef.current = 0;
 
-          // If no speech was detected in this 3-second window, skip recording & sending silently!
-          if (!speechDetectedInWindow) {
+          // If WebSpeech already captured the text or no speech energy detected, skip sending raw chunk
+          if (!speechDetectedInWindow && !webSpeechActiveRef.current) {
             return;
           }
+          webSpeechActiveRef.current = false;
 
           const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
             ? 'audio/webm;codecs=opus'
@@ -81,7 +134,6 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
           mediaRecorder.onstop = async () => {
             if (chunks.length > 0 && socket && isComponentMounted.current) {
               const audioBlob = new Blob(chunks, { type: mimeType });
-              // Only send if buffer contains non-trivial audio size (> 2500 bytes)
               if (audioBlob.size > 2500) {
                 const buffer = await audioBlob.arrayBuffer();
                 socket.emit('AUDIO_STREAM_CHUNK', {
@@ -117,6 +169,9 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
 
     return () => {
       isComponentMounted.current = false;
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (recordInterval) clearInterval(recordInterval);
       if (stream) stream.getTracks().forEach((track) => track.stop());

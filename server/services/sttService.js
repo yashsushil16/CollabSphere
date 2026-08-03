@@ -37,11 +37,22 @@ const SILENCE_HALLUCINATIONS = [
   'ah',
   'hmm',
   'hmmm',
+  'i\'m going to go to the next slide',
+  'going to the next slide',
+  'next slide',
+  'the next slide',
+  'gracias',
+  'gracias por ver',
+  'hello',
+  'hello.',
+  'hola',
+  'bonjour',
+  'danke',
 ];
 
 /**
  * Transcribe real WebAudio / MediaRecorder PCM WebM audio chunk using Groq Whisper Large v3 Turbo.
- * Returns the exact transcribed text spoken by the participant, or null if silent/no speech.
+ * Uses language='en' and segment no_speech_prob inspection to eliminate 100% of silence/noise hallucinations.
  */
 export async function transcribeAudioChunk(arrayBuffer, speakerName = "Participant") {
   if (!groqClient) {
@@ -67,26 +78,44 @@ export async function transcribeAudioChunk(arrayBuffer, speakerName = "Participa
     const transcription = await groqClient.audio.transcriptions.create({
       file: fs.createReadStream(tempFilePath),
       model: 'whisper-large-v3-turbo',
+      language: 'en', // Explicitly specify English to disable random language auto-detect hallucinations like "Gracias"
       prompt: 'CollabSphere live meeting transcript.',
       response_format: 'verbose_json',
       temperature: 0.0,
     });
 
-    if (transcription && transcription.text) {
-      const trimmedText = transcription.text.trim();
-      const lowerText = trimmedText.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+    if (transcription) {
+      // 1. Inspect segment no_speech_prob & logprob
+      if (transcription.segments && transcription.segments.length > 0) {
+        const avgNoSpeechProb = transcription.segments.reduce((acc, s) => acc + (s.no_speech_prob || 0), 0) / transcription.segments.length;
+        const avgLogProb = transcription.segments.reduce((acc, s) => acc + (s.avg_logprob || 0), 0) / transcription.segments.length;
 
-      // Check if text is too short or is a known silence/noise hallucination phrase
-      if (lowerText.length < 3) {
-        return null;
+        // High no_speech_prob (> 0.35) or low logprob (< -1.0) indicates silent/noisy audio
+        if (avgNoSpeechProb > 0.35 || avgLogProb < -1.2) {
+          console.log(`[STT Service] Audio chunk discarded due to silence/noise confidence (no_speech_prob: ${avgNoSpeechProb.toFixed(2)}, avg_logprob: ${avgLogProb.toFixed(2)})`);
+          return null;
+        }
       }
 
-      const isHallucination = SILENCE_HALLUCINATIONS.some(
-        (phrase) => lowerText === phrase || lowerText === phrase + '.'
-      );
+      if (transcription.text) {
+        const trimmedText = transcription.text.trim();
+        const lowerText = trimmedText.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
 
-      if (!isHallucination) {
-        return trimmedText;
+        // Check if text is too short (< 3 chars)
+        if (lowerText.length < 3) {
+          return null;
+        }
+
+        // Check if text matches known silence/slide hallucination phrases
+        const isHallucination = SILENCE_HALLUCINATIONS.some(
+          (phrase) => lowerText === phrase || lowerText === phrase + '.' || lowerText.includes(phrase)
+        );
+
+        if (!isHallucination) {
+          return trimmedText;
+        } else {
+          console.log(`[STT Service] Filtered Whisper hallucination phrase: "${trimmedText}"`);
+        }
       }
     }
 

@@ -25,6 +25,52 @@ function getOrCreateRoom(roomId) {
   return roomStateMap.get(roomId);
 }
 
+/**
+ * Process, deduplicate (8-sec window), and broadcast transcript lines
+ */
+async function processAndBroadcastTranscript(io, room, roomId, speakerId, speakerName, text, timestamp) {
+  const normalizedText = (text || '').trim();
+  if (normalizedText.length < 3) return;
+
+  // Suppress duplicate transcript lines within 8 seconds for the same room
+  const lastLog = room.transcriptLogs[room.transcriptLogs.length - 1];
+  if (
+    lastLog &&
+    lastLog.text.toLowerCase().trim() === normalizedText.toLowerCase() &&
+    Date.now() - lastLog.timestamp < 8000
+  ) {
+    console.log(`[Room ${roomId}] Suppressed duplicate transcript line: "${normalizedText}"`);
+    return;
+  }
+
+  const chunkId = `chk_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  const transcriptPayload = {
+    chunkId,
+    speakerId: speakerId || 'usr_unknown',
+    speakerName: speakerName || 'Participant',
+    timestamp: timestamp || Date.now(),
+    text: normalizedText,
+    isFinal: true,
+  };
+
+  room.transcriptLogs.push(transcriptPayload);
+  room.pendingAuditLogs.push(transcriptPayload);
+
+  await addVectorRecord(roomId, {
+    id: chunkId,
+    type: 'transcript',
+    text: normalizedText,
+    speakerName: transcriptPayload.speakerName,
+    timestamp: transcriptPayload.timestamp,
+  });
+
+  io.to(roomId).emit('TRANSCRIPT_CHUNK', {
+    event: 'TRANSCRIPT_CHUNK',
+    roomId,
+    payload: transcriptPayload,
+  });
+}
+
 export function registerRoomHandlers(io, socket) {
   console.log(`[Socket Connected]: ${socket.id}`);
 
@@ -54,47 +100,25 @@ export function registerRoomHandlers(io, socket) {
     }
   });
 
-  // 2. AUDIO STREAM CHUNK PROCESSING
+  // 2A. DIRECT TEXT TRANSCRIPT FROM BROWSER WEBSPEECH API (0 Latency, High Precision)
+  socket.on('TRANSCRIPT_TEXT', async (data) => {
+    const { roomId, speakerId, speakerName, text, timestamp } = data;
+    const room = getOrCreateRoom(roomId);
+    await processAndBroadcastTranscript(io, room, roomId, speakerId, speakerName, text, timestamp);
+  });
+
+  // 2B. AUDIO STREAM CHUNK PROCESSING (Groq Whisper)
   socket.on('AUDIO_STREAM_CHUNK', async (data) => {
     const { roomId, speakerId, speakerName, audioBlob, timestamp } = data;
     const room = getOrCreateRoom(roomId);
 
-    // Track speaker talk time (each chunk is ~3 seconds)
+    // Track speaker talk time
     room.speakerTalkTime[speakerName] = (room.speakerTalkTime[speakerName] || 0) + 3;
 
     try {
       const transcribedText = await transcribeAudioChunk(audioBlob, speakerName);
-
       if (transcribedText) {
-        const chunkId = `chk_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        const transcriptPayload = {
-          chunkId,
-          speakerId: speakerId || socket.speakerId || 'usr_unknown',
-          speakerName: speakerName || socket.speakerName || 'Participant',
-          timestamp: timestamp || Date.now(),
-          text: transcribedText,
-          isFinal: true,
-        };
-
-        // A. Store raw text in Room Buffer
-        room.transcriptLogs.push(transcriptPayload);
-        room.pendingAuditLogs.push(transcriptPayload);
-
-        // B. Vectorize & Push to Vector Store (Qdrant / Local)
-        await addVectorRecord(roomId, {
-          id: chunkId,
-          type: 'transcript',
-          text: transcribedText,
-          speakerName: transcriptPayload.speakerName,
-          timestamp: transcriptPayload.timestamp,
-        });
-
-        // C. Broadcast to all clients in room
-        io.to(roomId).emit('TRANSCRIPT_CHUNK', {
-          event: 'TRANSCRIPT_CHUNK',
-          roomId,
-          payload: transcriptPayload,
-        });
+        await processAndBroadcastTranscript(io, room, roomId, speakerId, speakerName, transcribedText, timestamp);
       }
     } catch (err) {
       console.error('[Audio Stream Processing Error]:', err);
