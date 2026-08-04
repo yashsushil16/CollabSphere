@@ -24,19 +24,23 @@ export default function VideoGrid({
     }
   }, [localStream]);
 
-  // Derive the list of remote participants to show tiles for
-  const otherParticipants = participants.filter(
-    (p) => p.socketId && p.socketId !== socketId
-  );
+  // Build the complete set of remote peers to display tiles for.
+  // We merge BOTH the server's participant list AND any remoteStreams keys
+  // so a tile always appears whether the participant entry or the stream arrives first.
+  const remotePeerIds = new Set([
+    ...Object.keys(remoteStreams),
+    ...participants.filter((p) => p.socketId && p.socketId !== socketId).map((p) => p.socketId),
+  ]);
 
-  // Fall back to remoteStreams keys when participants list hasn't populated yet
-  const displayPeers =
-    otherParticipants.length > 0
-      ? otherParticipants
-      : Object.keys(remoteStreams).map((id) => ({
-          socketId: id,
-          speakerName: remoteStreams[id]?.speakerName,
-        }));
+  const displayPeers = Array.from(remotePeerIds).map((id) => {
+    const fromParticipants = participants.find((p) => p.socketId === id);
+    const fromStreams = remoteStreams[id];
+    return {
+      socketId: id,
+      speakerName: fromParticipants?.speakerName || fromStreams?.speakerName || 'Participant',
+    };
+  });
+
 
   const totalOther = displayPeers.length;
   const isSpeaking = audioLevel > 15;
