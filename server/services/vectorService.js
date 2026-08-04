@@ -118,6 +118,15 @@ export async function searchVectorStore(roomId, queryText, limit = 5) {
       }
     } catch (err) {
       console.warn('[Qdrant Search Error]:', err.message);
+      // If collection missing/bad request, recreate it so future upserts work
+      if (err.message && (err.message.includes('Bad Request') || err.message.includes('Not found') || err.message.includes('404'))) {
+        try {
+          await qdrantClient.createCollection('collabsphere_transcripts', {
+            vectors: { size: 384, distance: 'Cosine' },
+          });
+          console.log('[Qdrant] Collection recreated after Bad Request error');
+        } catch (_) {}
+      }
     }
   }
 

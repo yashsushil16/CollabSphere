@@ -204,20 +204,42 @@ function RemoteTile({ speakerName, remoteObj }) {
 
     if (videoEl.srcObject !== stream) {
       videoEl.srcObject = stream;
-      videoEl.muted = true; // Muted — audio comes from PCM relay via AudioContext
+      videoEl.muted = true; // Audio via PCM relay
     }
 
-    videoEl.play()
-      .then(() => setHasVideo(true))
-      .catch(() => setHasVideo(false));
+    // Show video as soon as any track is live — don't hide based on play() result
+    const checkTracks = () => {
+      const anyLive = videoTracks.some((t) => t.readyState === 'live' && t.enabled);
+      setHasVideo(anyLive);
+    };
 
-    const onEnabled = () => setHasVideo(videoTracks.some((t) => t.enabled && !t.muted));
-    videoTracks.forEach((t) => { t.onmute = () => setHasVideo(false); t.onunmute = onEnabled; });
+    checkTracks();
+
+    videoEl.play().catch(() => {
+      // play() may fail due to autoplay policy but track is still live
+      // Re-check track state — video element may still display even without play()
+      checkTracks();
+    });
+
+    videoEl.onloadedmetadata = () => { checkTracks(); videoEl.play().catch(() => {}); };
+    videoEl.onplaying = () => setHasVideo(true);
+
+    videoTracks.forEach((t) => {
+      t.onmute = () => setHasVideo(false);
+      t.onunmute = checkTracks;
+      t.onended = () => setHasVideo(false);
+    });
+
+    // Poll track state every 2s as a safety net
+    const poll = setInterval(checkTracks, 2000);
 
     return () => {
-      videoTracks.forEach((t) => { t.onmute = null; t.onunmute = null; });
+      clearInterval(poll);
+      videoTracks.forEach((t) => { t.onmute = null; t.onunmute = null; t.onended = null; });
+      if (videoEl) { videoEl.onloadedmetadata = null; videoEl.onplaying = null; }
     };
   }, [stream]);
+
 
   // Tap tile to resume AudioContext if suspended on mobile
   const handleTap = useCallback(() => {
