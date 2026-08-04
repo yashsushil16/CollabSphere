@@ -1,5 +1,58 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { User, MicOff, Loader2, Volume2, VolumeX } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { User, MicOff, Loader2, Volume2 } from 'lucide-react';
+
+// ── Shared AudioContext for PCM playback ─────────────────────────────────────
+// One shared context for all remote audio playback to avoid creating too many.
+let sharedPlaybackCtx = null;
+function getPlaybackCtx() {
+  if (!sharedPlaybackCtx || sharedPlaybackCtx.state === 'closed') {
+    sharedPlaybackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  }
+  return sharedPlaybackCtx;
+}
+
+// Per-speaker playback state: tracks the next scheduled play time for gapless audio
+const speakerPlayTimes = {};
+
+/**
+ * Play a PCM_RELAY_CHUNK received from another participant.
+ * Int16 ArrayBuffer → Float32 → AudioContext BufferSource → scheduled playback
+ */
+function playPcmChunk(speakerId, pcmBuffer) {
+  try {
+    const ctx = getPlaybackCtx();
+
+    // Resume AudioContext if suspended (mobile browsers require user gesture first)
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+      return; // Will catch up on next chunk once resumed
+    }
+
+    const int16 = new Int16Array(pcmBuffer);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) {
+      float32[i] = int16[i] / 32768.0;
+    }
+
+    const buffer = ctx.createBuffer(1, float32.length, 16000);
+    buffer.getChannelData(0).set(float32);
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+
+    // Schedule for seamless gapless playback
+    const now = ctx.currentTime;
+    if (!speakerPlayTimes[speakerId] || speakerPlayTimes[speakerId] < now) {
+      // First chunk or gap — add 60ms buffer to catch up
+      speakerPlayTimes[speakerId] = now + 0.06;
+    }
+    source.start(speakerPlayTimes[speakerId]);
+    speakerPlayTimes[speakerId] += buffer.duration;
+  } catch (e) {
+    // Ignore errors — next chunk will retry
+  }
+}
 
 export default function VideoGrid({
   localStream,
@@ -10,6 +63,7 @@ export default function VideoGrid({
   isCameraOn,
   isMicOn,
   audioLevel = 0,
+  socket, // needed for PCM relay playback
 }) {
   const localVideoRef = useRef(null);
 
@@ -24,7 +78,36 @@ export default function VideoGrid({
     }
   }, [localStream]);
 
-  // Merge both sources so a tile always shows regardless of which arrives first
+  // ── PCM relay playback — listen for remote audio on the socket ──────────────
+  // This plays the Socket.IO audio relay regardless of WebRTC state.
+  useEffect(() => {
+    if (!socket) return;
+
+    const onPcmChunk = ({ pcm, speakerId: senderSpeakerId }) => {
+      if (senderSpeakerId === socketId) return; // Don't play own audio
+      playPcmChunk(senderSpeakerId, pcm);
+    };
+
+    socket.on('PCM_RELAY_CHUNK', onPcmChunk);
+
+    // Resume AudioContext on any user interaction (mobile autoplay policy)
+    const resumeCtx = () => {
+      try {
+        const ctx = getPlaybackCtx();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      } catch (_) {}
+    };
+    document.addEventListener('click', resumeCtx, { once: true });
+    document.addEventListener('touchstart', resumeCtx, { once: true });
+
+    return () => {
+      socket.off('PCM_RELAY_CHUNK', onPcmChunk);
+      document.removeEventListener('click', resumeCtx);
+      document.removeEventListener('touchstart', resumeCtx);
+    };
+  }, [socket, socketId]);
+
+  // Merge both sources so a tile always shows
   const remotePeerIds = new Set([
     ...Object.keys(remoteStreams),
     ...participants.filter((p) => p.socketId && p.socketId !== socketId).map((p) => p.socketId),
@@ -53,13 +136,12 @@ export default function VideoGrid({
             : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl'
         }`}
       >
-        {/* ── Local tile ──────────────────────────────────────────────────── */}
+        {/* ── Local tile ────────────────────────────────────────────────────── */}
         <div
           className={`relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border transition-colors duration-150 flex items-center justify-center shadow-sm ${
             isSpeaking ? 'border-accent-blue' : 'border-[var(--border)]'
           }`}
         >
-          {/* Video always mounted — srcObject managed via ref */}
           <video
             ref={localVideoRef}
             autoPlay
@@ -92,7 +174,7 @@ export default function VideoGrid({
           </div>
         </div>
 
-        {/* ── Remote tiles ────────────────────────────────────────────────── */}
+        {/* ── Remote tiles ──────────────────────────────────────────────────── */}
         {displayPeers.map((p) => (
           <RemoteTile
             key={p.socketId}
@@ -107,99 +189,50 @@ export default function VideoGrid({
 
 function RemoteTile({ speakerName, remoteObj }) {
   const videoRef = useRef(null);
-  const audioRef = useRef(null);
   const [hasVideo, setHasVideo] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
 
   const stream = remoteObj?.stream;
   const displayName = speakerName || remoteObj?.speakerName || 'Participant';
 
-  // Attach remote stream to BOTH video and audio elements
-  // Using a separate <audio> element ensures audio plays even when
-  // the browser blocks video autoplay. Audio autoplay is less restricted.
+  // Attach video stream (audio is handled by PCM relay above)
   useEffect(() => {
     const videoEl = videoRef.current;
-    const audioEl = audioRef.current;
-
-    if (!stream) {
-      setHasVideo(false);
-      return;
-    }
+    if (!stream || !videoEl) { setHasVideo(false); return; }
 
     const videoTracks = stream.getVideoTracks();
-    const audioTracks = stream.getAudioTracks();
+    if (videoTracks.length === 0) { setHasVideo(false); return; }
 
-    console.log(`[VideoGrid] Remote stream — video tracks: ${videoTracks.length}, audio tracks: ${audioTracks.length}`);
-
-    // ── Video ────────────────────────────────────────────────────────────────
-    if (videoEl && videoTracks.length > 0) {
-      if (videoEl.srcObject !== stream) {
-        videoEl.srcObject = stream;
-        videoEl.muted = true; // start muted — audio handled separately below
-      }
-      videoEl.play().then(() => {
-        setHasVideo(true);
-      }).catch(() => {
-        // Autoplay blocked — still show the element, audio will play via <audio>
-        setHasVideo(false);
-      });
-
-      const onVideoTrackEnabled = () => setHasVideo(videoTracks.some((t) => t.enabled && !t.muted));
-      videoTracks.forEach((t) => {
-        t.onmute = () => setHasVideo(false);
-        t.onunmute = onVideoTrackEnabled;
-        t.onended = () => setHasVideo(false);
-      });
-    } else {
-      setHasVideo(false);
+    if (videoEl.srcObject !== stream) {
+      videoEl.srcObject = stream;
+      videoEl.muted = true; // Muted — audio comes from PCM relay via AudioContext
     }
 
-    // ── Audio — dedicated <audio> element, NOT the video element ─────────────
-    // This bypasses video autoplay restrictions on mobile. Browsers allow
-    // <audio> to play after user interaction more liberally than <video>.
-    if (audioEl && audioTracks.length > 0) {
-      // Create audio-only stream to avoid the video element playing audio twice
-      const audioOnlyStream = new MediaStream(audioTracks);
-      if (audioEl.srcObject !== audioOnlyStream) {
-        audioEl.srcObject = audioOnlyStream;
-        audioEl.volume = 1.0;
-        audioEl.muted = false;
-      }
-      audioEl.play().catch((err) => {
-        console.warn('[VideoGrid] Audio autoplay blocked:', err.name);
-        // Even if blocked, unmuting on any user interaction usually works
-      });
-    }
+    videoEl.play()
+      .then(() => setHasVideo(true))
+      .catch(() => setHasVideo(false));
+
+    const onEnabled = () => setHasVideo(videoTracks.some((t) => t.enabled && !t.muted));
+    videoTracks.forEach((t) => { t.onmute = () => setHasVideo(false); t.onunmute = onEnabled; });
 
     return () => {
-      videoTracks.forEach((t) => {
-        t.onmute = null;
-        t.onunmute = null;
-        t.onended = null;
-      });
+      videoTracks.forEach((t) => { t.onmute = null; t.onunmute = null; });
     };
   }, [stream]);
 
-  // Try to play audio on any user click (mobile autoplay bypass)
-  const handleUnmute = () => {
-    const audioEl = audioRef.current;
-    if (audioEl) {
-      audioEl.muted = false;
-      audioEl.play().catch(() => {});
-      setIsMuted(false);
-    }
-  };
+  // Tap tile to resume AudioContext if suspended on mobile
+  const handleTap = useCallback(() => {
+    try {
+      const ctx = getPlaybackCtx();
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    } catch (_) {}
+  }, []);
 
   return (
     <div
       className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm cursor-pointer"
-      onClick={handleUnmute}
+      onClick={handleTap}
     >
-      {/* Dedicated audio element — separate from video for reliable playback */}
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <audio ref={audioRef} autoPlay playsInline style={{ display: 'none' }} />
-
-      {/* Video element — always in DOM, opacity controlled by track state */}
+      {/* Video — muted (audio via PCM relay) */}
       <video
         ref={videoRef}
         autoPlay
@@ -208,9 +241,9 @@ function RemoteTile({ speakerName, remoteObj }) {
         className={`w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'}`}
       />
 
-      {/* Avatar shown when video is off or no stream yet */}
+      {/* Avatar when no video */}
       {!hasVideo && (
-        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)]">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)]">
           <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] border border-[var(--border)] flex items-center justify-center relative">
             <User className="w-7 h-7 sm:w-10 sm:h-10 text-[var(--text-3)]" />
             {!stream && (
@@ -221,29 +254,13 @@ function RemoteTile({ speakerName, remoteObj }) {
           </div>
           <div className="text-center space-y-1">
             <p className="text-xs sm:text-sm font-semibold text-[var(--text-1)]">{displayName}</p>
-            <p className="text-[10px] text-[var(--text-3)] font-mono flex items-center justify-center gap-1">
+            <p className="text-[10px] text-[var(--text-3)] flex items-center justify-center gap-1">
               {!stream ? (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-ping" />
-                  Connecting…
-                </>
-              ) : (
-                'Camera off'
-              )}
+                <><span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-ping" />Connecting…</>
+              ) : 'Camera off'}
             </p>
           </div>
         </div>
-      )}
-
-      {/* Tap to unmute hint — shown only if stream exists but audio may be blocked */}
-      {stream && isMuted && (
-        <button
-          className="absolute top-2 right-2 z-20 p-1.5 rounded-full bg-black/70 text-yellow-400 backdrop-blur-sm"
-          onClick={handleUnmute}
-          title="Tap to enable audio"
-        >
-          <VolumeX className="w-4 h-4" />
-        </button>
       )}
 
       {/* Name tag */}

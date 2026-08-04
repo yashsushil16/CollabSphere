@@ -134,6 +134,16 @@ export function registerRoomHandlers(io, socket) {
     }
   });
 
+  // 1C. PCM AUDIO RELAY — Guaranteed audio path via Socket.IO (bypasses WebRTC/TURN)
+  // Receives raw PCM Int16 audio from a speaker and relays to all other room participants.
+  // This works on any network because it uses the existing Socket.IO connection.
+  socket.on('PCM_RELAY_CHUNK', ({ roomId, pcm, speakerId }) => {
+    if (!roomStateMap.has(roomId)) return;
+    // Relay ONLY to others in the same room, not back to sender
+    socket.to(roomId).emit('PCM_RELAY_CHUNK', { pcm, speakerId });
+  });
+
+
   // 2A. DIRECT TEXT TRANSCRIPT FROM BROWSER WEBSPEECH API
   socket.on('TRANSCRIPT_TEXT', async (data) => {
     const { roomId, speakerId, speakerName, text, timestamp } = data;

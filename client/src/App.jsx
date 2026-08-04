@@ -355,6 +355,7 @@ export default function App() {
             isCameraOn={isCameraOn}
             isMicOn={isMicOn}
             audioLevel={audioLevel}
+            socket={socket}
           />
         </div>
 
