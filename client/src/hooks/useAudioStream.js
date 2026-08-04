@@ -5,7 +5,6 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
   const [audioLevel, setAudioLevel] = useState(0);
   const isComponentMounted = useRef(true);
   const speechSamplesCountRef = useRef(0);
-  const webSpeechActiveRef = useRef(false);
   const recentSentTextRef = useRef('');
 
   useEffect(() => {
@@ -37,14 +36,13 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
             recognition.lang = 'en-US';
 
             recognition.onresult = (event) => {
-              if (!isMicOn || !isComponentMounted.current) return;
+              if (!isMicOn || !isComponentMounted.current || !socket) return;
               for (let i = event.resultIndex; i < event.results.length; i++) {
                 if (event.results[i].isFinal) {
                   const transcriptText = event.results[i][0].transcript.trim();
-                  if (transcriptText.length > 2 && transcriptText !== recentSentTextRef.current) {
+                  if (transcriptText.length >= 2 && transcriptText.toLowerCase() !== recentSentTextRef.current.toLowerCase()) {
                     recentSentTextRef.current = transcriptText;
-                    speechSamplesCountRef.current += 5; // Mark high speech activity
-                    webSpeechActiveRef.current = true;
+                    speechSamplesCountRef.current += 5;
 
                     console.log('[WebSpeech STT Recognized]:', transcriptText);
                     socket.emit('TRANSCRIPT_TEXT', {
@@ -64,7 +62,6 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
             };
 
             recognition.onend = () => {
-              // Restart recognition if mic is still on
               if (isMicOn && isComponentMounted.current) {
                 try { recognition.start(); } catch (e) {}
               }
@@ -76,7 +73,7 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
           }
         }
 
-        // 2. Audio Context + Analyser for VAD (Voice Activity Detection)
+        // 2. Audio Context + Analyser for VAD & Volume Meter
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
@@ -93,8 +90,8 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
           
           setAudioLevel(currentLevel);
 
-          // Voice Activity Threshold (> 16 is speech energy)
-          if (currentLevel > 16) {
+          // Voice Activity Threshold (> 10 is speech energy)
+          if (currentLevel > 10) {
             speechSamplesCountRef.current += 1;
           }
 
@@ -102,19 +99,17 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
         };
         updateAudioLevel();
 
-        // 3. Fallback audio chunk recorder for Groq Whisper
+        // 3. Audio chunk recorder for Groq Whisper fallback
         const recordChunk = () => {
-          if (!stream || !isMicOn || !isComponentMounted.current) return;
+          if (!stream || !isMicOn || !isComponentMounted.current || !socket) return;
 
-          // Check if speech was detected during this 3-second window
-          const speechDetectedInWindow = speechSamplesCountRef.current >= 3;
+          // Send chunk if speech activity was detected in this 3-second window
+          const speechDetectedInWindow = speechSamplesCountRef.current >= 2;
           speechSamplesCountRef.current = 0;
 
-          // If WebSpeech already captured the text or no speech energy detected, skip sending raw chunk
-          if (!speechDetectedInWindow && !webSpeechActiveRef.current) {
+          if (!speechDetectedInWindow) {
             return;
           }
-          webSpeechActiveRef.current = false;
 
           const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
             ? 'audio/webm;codecs=opus'
@@ -134,7 +129,7 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
           mediaRecorder.onstop = async () => {
             if (chunks.length > 0 && socket && isComponentMounted.current) {
               const audioBlob = new Blob(chunks, { type: mimeType });
-              if (audioBlob.size > 2500) {
+              if (audioBlob.size > 1500) {
                 const buffer = await audioBlob.arrayBuffer();
                 socket.emit('AUDIO_STREAM_CHUNK', {
                   roomId,

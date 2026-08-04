@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 
 export const useSocket = (roomId, speakerId, speakerName) => {
   const socketRef = useRef(null);
+  const [socketInstance, setSocketInstance] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [participants, setParticipants] = useState([]);
   const [transcripts, setTranscripts] = useState([]);
@@ -12,15 +13,20 @@ export const useSocket = (roomId, speakerId, speakerName) => {
   const [analyticsData, setAnalyticsData] = useState(null);
 
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId) {
+      setSocketInstance(null);
+      setIsConnected(false);
+      return;
+    }
 
-    // Connect to Socket.IO backend server URL (VITE_SERVER_URL in production or relative '/' in dev proxy)
+    // Connect to Socket.IO backend server URL
     const SERVER_URL = import.meta.env.VITE_SERVER_URL || '/';
     const socket = io(SERVER_URL, {
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
     });
     socketRef.current = socket;
+    setSocketInstance(socket);
 
     socket.on('connect', () => {
       console.log('[Socket Connected] ID:', socket.id);
@@ -35,11 +41,13 @@ export const useSocket = (roomId, speakerId, speakerName) => {
     });
 
     socket.on('PARTICIPANT_LIST_UPDATED', (list) => {
+      console.log('[Socket Participant List Updated]:', list);
       setParticipants(list);
     });
 
     socket.on('TRANSCRIPT_CHUNK', (data) => {
       if (data && data.payload) {
+        console.log('[Transcript Chunk Received]:', data.payload);
         setTranscripts((prev) => [...prev, data.payload]);
       }
     });
@@ -66,6 +74,8 @@ export const useSocket = (roomId, speakerId, speakerName) => {
 
     return () => {
       socket.disconnect();
+      socketRef.current = null;
+      setSocketInstance(null);
     };
   }, [roomId, speakerId, speakerName]);
 
@@ -86,7 +96,7 @@ export const useSocket = (roomId, speakerId, speakerName) => {
   };
 
   return {
-    socket: socketRef.current,
+    socket: socketInstance,
     isConnected,
     participants,
     transcripts,
