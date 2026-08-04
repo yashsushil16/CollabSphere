@@ -15,58 +15,61 @@ export default function VideoGrid({
 
   // Attach local stream to video element
   useEffect(() => {
-    if (localVideoRef.current && localStream) {
-      localVideoRef.current.srcObject = localStream;
-      localVideoRef.current.muted = true;
-      localVideoRef.current.play().catch((err) => {
-        console.warn('Local video playback notice:', err.message);
-      });
+    const el = localVideoRef.current;
+    if (!el || !localStream) return;
+    if (el.srcObject !== localStream) {
+      el.srcObject = localStream;
+      el.muted = true;
+      el.play().catch(() => {});
     }
-  }, [localStream, isCameraOn]);
+  }, [localStream]);
 
-  // Filter out self from participants list using socketId
-  const otherParticipants = (participants || []).filter(
+  // Derive the list of remote participants to show tiles for
+  const otherParticipants = participants.filter(
     (p) => p.socketId && p.socketId !== socketId
   );
 
-  // Fallback to remoteStreams keys if participants list is not yet populated
-  const remotePeerIds = Object.keys(remoteStreams);
-  const displayPeers = otherParticipants.length > 0
-    ? otherParticipants
-    : remotePeerIds.map((id) => ({ socketId: id, speakerName: remoteStreams[id]?.speakerName }));
+  // Fall back to remoteStreams keys when participants list hasn't populated yet
+  const displayPeers =
+    otherParticipants.length > 0
+      ? otherParticipants
+      : Object.keys(remoteStreams).map((id) => ({
+          socketId: id,
+          speakerName: remoteStreams[id]?.speakerName,
+        }));
 
-  const totalOtherCount = displayPeers.length;
+  const totalOther = displayPeers.length;
   const isSpeaking = audioLevel > 15;
 
   return (
     <div className="flex-1 w-full h-full p-2 sm:p-4 flex items-center justify-center overflow-hidden select-none min-h-0">
       <div
         className={`w-full h-full grid gap-2 sm:gap-3 items-center justify-center ${
-          totalOtherCount === 0
+          totalOther === 0
             ? 'grid-cols-1 max-w-4xl'
-            : totalOtherCount === 1
+            : totalOther === 1
             ? 'grid-cols-1 sm:grid-cols-2 max-w-6xl'
             : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl'
         }`}
       >
-        {/* Local user camera tile */}
+        {/* ── Local user tile ─────────────────────────────────────────────── */}
         <div
           className={`relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border transition-colors duration-150 flex items-center justify-center shadow-sm ${
-            isSpeaking
-              ? 'border-accent-blue'
-              : 'border-[var(--border)]'
+            isSpeaking ? 'border-accent-blue' : 'border-[var(--border)]'
           }`}
         >
-          {isCameraOn && localStream ? (
+          {localStream ? (
             <video
               ref={localVideoRef}
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover transform -scale-x-100"
+              className={`w-full h-full object-cover transform -scale-x-100 ${isCameraOn ? 'opacity-100' : 'opacity-0'}`}
             />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4">
+          ) : null}
+
+          {(!localStream || !isCameraOn) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)]">
               <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] flex items-center justify-center">
                 <User className="w-7 h-7 sm:w-10 sm:h-10 text-[var(--text-3)]" />
               </div>
@@ -74,10 +77,8 @@ export default function VideoGrid({
             </div>
           )}
 
-          {/* Name tag chip */}
           <div className="absolute bottom-2 left-2 flex items-center gap-2 z-10">
             <div className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white flex items-center gap-1.5 backdrop-blur-sm">
-              {/* Audio wave bars */}
               {isMicOn && isSpeaking && (
                 <span className="flex items-end gap-[2px] h-3">
                   <span className="w-[2px] rounded-full bg-accent-green animate-wave-1" />
@@ -91,12 +92,12 @@ export default function VideoGrid({
           </div>
         </div>
 
-        {/* Remote participant video tiles */}
-        {displayPeers.map((participant) => (
+        {/* ── Remote participant tiles ─────────────────────────────────────── */}
+        {displayPeers.map((p) => (
           <RemoteTile
-            key={participant.socketId}
-            speakerName={participant.speakerName}
-            remoteObj={remoteStreams[participant.socketId]}
+            key={p.socketId}
+            speakerName={p.speakerName}
+            remoteObj={remoteStreams[p.socketId]}
           />
         ))}
       </div>
@@ -105,74 +106,96 @@ export default function VideoGrid({
 }
 
 function RemoteTile({ speakerName, remoteObj }) {
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const videoRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const stream = remoteObj?.stream;
-  const nameToDisplay = speakerName || remoteObj?.speakerName || 'Participant';
+  const displayName = speakerName || remoteObj?.speakerName || 'Participant';
 
+  // Attach stream to video element via useEffect — reliable and React-safe
   useEffect(() => {
-    setIsVideoPlaying(false);
+    const el = videoRef.current;
+    if (!el || !stream) {
+      setIsPlaying(false);
+      return;
+    }
+
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.muted = false;
+      el.volume = 1.0;
+    }
+
+    const tryPlay = () => {
+      el.play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => {
+          // Browsers block autoplay with sound — retry muted then unmute
+          if (err.name === 'NotAllowedError') {
+            el.muted = true;
+            el.play()
+              .then(() => {
+                el.muted = false;
+                setIsPlaying(true);
+              })
+              .catch(() => {});
+          }
+        });
+    };
+
+    tryPlay();
+
+    el.onplaying = () => setIsPlaying(true);
+    el.onpause = () => setIsPlaying(false);
+    el.onwaiting = () => setIsPlaying(false);
+
+    return () => {
+      el.onplaying = null;
+      el.onpause = null;
+      el.onwaiting = null;
+    };
   }, [stream]);
 
   return (
     <div className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm">
-      {/* Video element — mounted if stream exists */}
-      {stream && (
-        <video
-          ref={(el) => {
-            videoRef.current = el;
-            if (el && stream && el.srcObject !== stream) {
-              el.srcObject = stream;
-              el.muted = false;
-              el.volume = 1.0;
-              el.play()
-                .then(() => setIsVideoPlaying(true))
-                .catch((err) => console.warn('Remote video play notice:', err.message));
-            }
-          }}
-          onPlaying={() => setIsVideoPlaying(true)}
-          onCanPlay={() => setIsVideoPlaying(true)}
-          onLoadedData={() => setIsVideoPlaying(true)}
-          onLoadedMetadata={() => setIsVideoPlaying(true)}
-          autoPlay
-          playsInline
-          className={`w-full h-full object-cover transition-opacity duration-200 ${
-            isVideoPlaying ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
-      )}
+      {/* Video element — always mounted so srcObject can be set */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        className={`w-full h-full object-cover transition-opacity duration-300 ${isPlaying ? 'opacity-100' : 'opacity-0'}`}
+      />
 
-      {/* Participant Avatar Overlay (shown when stream is connecting or video has not rendered) */}
-      {!isVideoPlaying && (
-        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)] z-0">
+      {/* Avatar overlay — shown until video is playing */}
+      {!isPlaying && (
+        <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)]">
           <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] border border-[var(--border)] flex items-center justify-center relative">
             <User className="w-7 h-7 sm:w-10 sm:h-10 text-[var(--text-3)]" />
             {!stream && (
-              <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-accent-blue/20 text-accent-blue animate-spin">
-                <Loader2 className="w-3.5 h-3.5" />
+              <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-accent-blue/20 text-accent-blue">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               </div>
             )}
           </div>
           <div className="text-center space-y-1">
-            <p className="text-xs sm:text-sm font-semibold text-[var(--text-1)]">{nameToDisplay}</p>
+            <p className="text-xs sm:text-sm font-semibold text-[var(--text-1)]">{displayName}</p>
             <p className="text-[10px] text-[var(--text-3)] font-mono flex items-center justify-center gap-1">
               {!stream ? (
                 <>
                   <span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-ping" />
-                  Connecting video...
+                  Connecting…
                 </>
               ) : (
-                'Camera is Off'
+                'Camera is off'
               )}
             </p>
           </div>
         </div>
       )}
 
-      {/* Name tag chip */}
-      <div className="absolute bottom-2 left-2 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white backdrop-blur-sm z-10 flex items-center gap-1.5">
-        <span>{nameToDisplay}</span>
+      {/* Name tag */}
+      <div className="absolute bottom-2 left-2 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white backdrop-blur-sm z-10">
+        {displayName}
       </div>
     </div>
   );

@@ -1,115 +1,153 @@
 import { useEffect, useRef, useState } from 'react';
 
-export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn = true) => {
-  const [isRecording, setIsRecording] = useState(false);
+/**
+ * useAudioStream
+ *
+ * CRITICAL DESIGN DECISIONS (fixes for all bugs):
+ *
+ * 1. The mic stream is acquired from the SHARED localStream passed in from useWebRTC.
+ *    We do NOT call getUserMedia() here again — that was causing the mic click sound
+ *    on mobile (double mic acquisition + release cycles).
+ *
+ * 2. `isMicOn` is NOT in the useEffect dependency array. Instead, it is read via a
+ *    ref inside the effect. This prevents the entire audio pipeline from tearing down
+ *    and restarting every time the user toggles the mic.
+ *
+ * 3. WebSpeech is started ONCE and kept alive. It restarts on 'onend' only if
+ *    the component is still mounted and joined to a room.
+ *
+ * 4. Audio chunks are only emitted when voice activity is detected (VAD gate).
+ *    This prevents silence audio from being sent to the STT server.
+ *
+ * 5. The socket and roomId are read via refs inside the effect — so socket
+ *    changes (e.g., reconnects) do NOT cause the audio pipeline to restart.
+ */
+export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn, localStream) => {
   const [audioLevel, setAudioLevel] = useState(0);
-  const isComponentMounted = useRef(true);
-  const speechSamplesCountRef = useRef(0);
-  const recentSentTextRef = useRef('');
 
+  // Stable refs — prevent effect re-runs on value changes
+  const socketRef = useRef(socket);
+  const roomIdRef = useRef(roomId);
+  const speakerIdRef = useRef(speakerId);
+  const speakerNameRef = useRef(speakerName);
+  const isMicOnRef = useRef(isMicOn);
+  const mountedRef = useRef(true);
+
+  // Keep refs in sync with latest props without triggering re-runs
+  useEffect(() => { socketRef.current = socket; }, [socket]);
+  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+  useEffect(() => { speakerIdRef.current = speakerId; }, [speakerId]);
+  useEffect(() => { speakerNameRef.current = speakerName; }, [speakerName]);
+  useEffect(() => { isMicOnRef.current = isMicOn; }, [isMicOn]);
+
+  // ─── Main audio pipeline — runs ONCE when localStream is available ─────────
   useEffect(() => {
-    isComponentMounted.current = true;
-    let stream;
+    mountedRef.current = true;
+
+    if (!localStream) return;
+
     let audioContext;
-    let analyser;
-    let recordInterval;
+    let analyserNode;
     let animationFrameId;
     let recognition;
+    let recordInterval;
+    let speechWindowCount = 0;
+    const recentTextRef = { current: '' };
 
-    const startAudioProcessing = async () => {
-      if (!isMicOn || !socket || !roomId) {
-        setIsRecording(false);
-        setAudioLevel(0);
-        return;
-      }
-
+    const init = async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // ── 1. Audio level meter (VAD) ────────────────────────────────────────
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyserNode = audioContext.createAnalyser();
+        analyserNode.fftSize = 128;
 
-        // 1. Setup WebSpeech API (Native Browser Speech Recognition for instant 0-latency STT)
+        const source = audioContext.createMediaStreamSource(localStream);
+        source.connect(analyserNode);
+
+        const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+
+        const tick = () => {
+          if (!mountedRef.current) return;
+          analyserNode.getByteFrequencyData(dataArray);
+          const avg = dataArray.reduce((s, v) => s + v, 0) / dataArray.length;
+          const level = Math.min(100, Math.round((avg / 255) * 100));
+          setAudioLevel(level);
+
+          // Voice activity detection — count frames where mic is live and loud enough
+          if (isMicOnRef.current && level > 8) {
+            speechWindowCount++;
+          }
+
+          animationFrameId = requestAnimationFrame(tick);
+        };
+        tick();
+
+        // ── 2. WebSpeech API — primary STT (0-latency, no silence hallucinations) ──
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
-          try {
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = false;
-            recognition.lang = 'en-US';
+          recognition = new SpeechRecognition();
+          recognition.continuous = true;
+          recognition.interimResults = false;
+          recognition.lang = 'en-US';
+          recognition.maxAlternatives = 1;
 
-            recognition.onresult = (event) => {
-              if (!isMicOn || !isComponentMounted.current || !socket) return;
-              for (let i = event.resultIndex; i < event.results.length; i++) {
-                if (event.results[i].isFinal) {
-                  const transcriptText = event.results[i][0].transcript.trim();
-                  if (transcriptText.length >= 2 && transcriptText.toLowerCase() !== recentSentTextRef.current.toLowerCase()) {
-                    recentSentTextRef.current = transcriptText;
-                    speechSamplesCountRef.current += 5;
+          recognition.onresult = (event) => {
+            // Only emit if mic is on and we're in a room
+            if (!isMicOnRef.current || !socketRef.current || !roomIdRef.current) return;
+            if (!mountedRef.current) return;
 
-                    console.log('[WebSpeech STT Recognized]:', transcriptText);
-                    socket.emit('TRANSCRIPT_TEXT', {
-                      roomId,
-                      speakerId,
-                      speakerName,
-                      text: transcriptText,
-                      timestamp: Date.now(),
-                    });
-                  }
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              if (event.results[i].isFinal) {
+                const text = event.results[i][0].transcript.trim();
+                if (text.length >= 3 && text.toLowerCase() !== recentTextRef.current.toLowerCase()) {
+                  recentTextRef.current = text;
+                  console.log('[STT WebSpeech]:', text);
+                  socketRef.current.emit('TRANSCRIPT_TEXT', {
+                    roomId: roomIdRef.current,
+                    speakerId: speakerIdRef.current,
+                    speakerName: speakerNameRef.current,
+                    text,
+                    timestamp: Date.now(),
+                  });
                 }
               }
-            };
+            }
+          };
 
-            recognition.onerror = (err) => {
-              console.warn('[WebSpeech API Warning]:', err.error);
-            };
+          recognition.onerror = (e) => {
+            // 'no-speech' and 'audio-capture' are non-fatal
+            if (e.error !== 'no-speech' && e.error !== 'audio-capture') {
+              console.warn('[STT WebSpeech error]:', e.error);
+            }
+          };
 
-            recognition.onend = () => {
-              if (isMicOn && isComponentMounted.current) {
-                try { recognition.start(); } catch (e) {}
-              }
-            };
+          recognition.onend = () => {
+            // Auto-restart only if still mounted and in a room
+            if (mountedRef.current && roomIdRef.current) {
+              try { recognition.start(); } catch (_) {}
+            }
+          };
 
+          try {
             recognition.start();
           } catch (e) {
-            console.warn('[WebSpeech API Init Notice]:', e.message);
+            console.warn('[STT WebSpeech start error]:', e.message);
           }
         }
 
-        // 2. Audio Context + Analyser for VAD & Volume Meter
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(stream);
-        source.connect(analyser);
-        analyser.fftSize = 64;
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        // ── 3. Groq Whisper fallback (fires every 5 seconds only when speech detected) ──
+        const CHUNK_INTERVAL_MS = 5000;
+        const CHUNK_DURATION_MS = 4500;
+        const MIN_SPEECH_FRAMES = 10; // ~10 frames of voice activity needed
 
-        const updateAudioLevel = () => {
-          if (!analyser || !isComponentMounted.current) return;
-          analyser.getByteFrequencyData(dataArray);
-          const sum = dataArray.reduce((acc, val) => acc + val, 0);
-          const avg = sum / dataArray.length;
-          const currentLevel = Math.min(100, Math.round((avg / 255) * 100));
-          
-          setAudioLevel(currentLevel);
-
-          // Voice Activity Threshold (> 10 is speech energy)
-          if (currentLevel > 10) {
-            speechSamplesCountRef.current += 1;
-          }
-
-          animationFrameId = requestAnimationFrame(updateAudioLevel);
-        };
-        updateAudioLevel();
-
-        // 3. Audio chunk recorder for Groq Whisper fallback
-        const recordChunk = () => {
-          if (!stream || !isMicOn || !isComponentMounted.current || !socket) return;
-
-          // Send chunk if speech activity was detected in this 3-second window
-          const speechDetectedInWindow = speechSamplesCountRef.current >= 2;
-          speechSamplesCountRef.current = 0;
-
-          if (!speechDetectedInWindow) {
+        recordInterval = setInterval(() => {
+          if (!mountedRef.current || !isMicOnRef.current) return;
+          if (!socketRef.current || !roomIdRef.current) return;
+          if (speechWindowCount < MIN_SPEECH_FRAMES) {
+            speechWindowCount = 0;
             return;
           }
+          speechWindowCount = 0;
 
           const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
             ? 'audio/webm;codecs=opus'
@@ -117,65 +155,63 @@ export const useAudioStream = (socket, roomId, speakerId, speakerName, isMicOn =
             ? 'audio/webm'
             : 'audio/mp4';
 
-          const mediaRecorder = new MediaRecorder(stream, { mimeType });
+          let mr;
+          try {
+            mr = new MediaRecorder(localStream, { mimeType });
+          } catch (e) {
+            console.warn('[STT Whisper] MediaRecorder init error:', e.message);
+            return;
+          }
+
           const chunks = [];
-
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) {
-              chunks.push(e.data);
+          mr.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+          mr.onstop = async () => {
+            if (!mountedRef.current || !socketRef.current || !roomIdRef.current) return;
+            const blob = new Blob(chunks, { type: mimeType });
+            if (blob.size > 3000) {
+              const buffer = await blob.arrayBuffer();
+              socketRef.current.emit('AUDIO_STREAM_CHUNK', {
+                roomId: roomIdRef.current,
+                speakerId: speakerIdRef.current,
+                speakerName: speakerNameRef.current,
+                audioBlob: buffer,
+                timestamp: Date.now(),
+              });
             }
           };
 
-          mediaRecorder.onstop = async () => {
-            if (chunks.length > 0 && socket && isComponentMounted.current) {
-              const audioBlob = new Blob(chunks, { type: mimeType });
-              if (audioBlob.size > 1500) {
-                const buffer = await audioBlob.arrayBuffer();
-                socket.emit('AUDIO_STREAM_CHUNK', {
-                  roomId,
-                  speakerId,
-                  speakerName,
-                  audioBlob: buffer,
-                  timestamp: Date.now(),
-                });
-              }
-            }
-          };
-
-          mediaRecorder.start();
+          mr.start();
           setTimeout(() => {
-            if (mediaRecorder.state === 'recording') {
-              mediaRecorder.stop();
-            }
-          }, 3000);
-        };
+            if (mr.state === 'recording') mr.stop();
+          }, CHUNK_DURATION_MS);
+        }, CHUNK_INTERVAL_MS);
 
-        recordInterval = setInterval(recordChunk, 3200);
-        setIsRecording(true);
       } catch (err) {
-        console.warn('Audio mic stream access error:', err.message);
-        setIsRecording(false);
+        console.error('[useAudioStream] init error:', err.message);
       }
     };
 
-    if (socket && roomId) {
-      startAudioProcessing();
-    }
+    init();
 
     return () => {
-      isComponentMounted.current = false;
+      mountedRef.current = false;
       if (recognition) {
-        try { recognition.stop(); } catch (e) {}
+        try { recognition.stop(); } catch (_) {}
       }
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (recordInterval) clearInterval(recordInterval);
-      if (stream) stream.getTracks().forEach((track) => track.stop());
-      if (audioContext) audioContext.close();
+      if (analyserNode) {
+        try { analyserNode.disconnect(); } catch (_) {}
+      }
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(() => {});
+      }
     };
-  }, [socket, roomId, speakerId, speakerName, isMicOn]);
+    // INTENTIONALLY only depends on localStream — everything else is read via refs.
+    // This is the key fix for mic clicking: the pipeline starts ONCE when localStream
+    // is available and NEVER restarts due to socket/roomId/isMicOn changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localStream]);
 
-  return {
-    isRecording,
-    audioLevel,
-  };
+  return { audioLevel };
 };

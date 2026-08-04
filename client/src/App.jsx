@@ -98,7 +98,7 @@ export default function App() {
     toggleCamera, toggleMicrophone, toggleScreenShare,
   } = useWebRTC(joinedRoom ? roomId : null, speakerId, speakerName, socket);
 
-  const { audioLevel } = useAudioStream(socket, joinedRoom ? roomId : null, speakerId, speakerName, isMicOn);
+  const { audioLevel } = useAudioStream(socket, joinedRoom ? roomId : null, speakerId, speakerName, isMicOn, localStream);
 
   // Attach local stream to preview video when on landing page
   useEffect(() => {
