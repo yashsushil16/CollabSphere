@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { User, MicOff, Loader2 } from 'lucide-react';
+import { User, MicOff, Loader2, Volume2, VolumeX } from 'lucide-react';
 
 export default function VideoGrid({
   localStream,
@@ -24,9 +24,7 @@ export default function VideoGrid({
     }
   }, [localStream]);
 
-  // Build the complete set of remote peers to display tiles for.
-  // We merge BOTH the server's participant list AND any remoteStreams keys
-  // so a tile always appears whether the participant entry or the stream arrives first.
+  // Merge both sources so a tile always shows regardless of which arrives first
   const remotePeerIds = new Set([
     ...Object.keys(remoteStreams),
     ...participants.filter((p) => p.socketId && p.socketId !== socketId).map((p) => p.socketId),
@@ -40,7 +38,6 @@ export default function VideoGrid({
       speakerName: fromParticipants?.speakerName || fromStreams?.speakerName || 'Participant',
     };
   });
-
 
   const totalOther = displayPeers.length;
   const isSpeaking = audioLevel > 15;
@@ -56,21 +53,20 @@ export default function VideoGrid({
             : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-7xl'
         }`}
       >
-        {/* ── Local user tile ─────────────────────────────────────────────── */}
+        {/* ── Local tile ──────────────────────────────────────────────────── */}
         <div
           className={`relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border transition-colors duration-150 flex items-center justify-center shadow-sm ${
             isSpeaking ? 'border-accent-blue' : 'border-[var(--border)]'
           }`}
         >
-          {localStream ? (
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className={`w-full h-full object-cover transform -scale-x-100 ${isCameraOn ? 'opacity-100' : 'opacity-0'}`}
-            />
-          ) : null}
+          {/* Video always mounted — srcObject managed via ref */}
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover transform -scale-x-100 absolute inset-0 ${isCameraOn && localStream ? 'opacity-100' : 'opacity-0'}`}
+          />
 
           {(!localStream || !isCameraOn) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)]">
@@ -96,7 +92,7 @@ export default function VideoGrid({
           </div>
         </div>
 
-        {/* ── Remote participant tiles ─────────────────────────────────────── */}
+        {/* ── Remote tiles ────────────────────────────────────────────────── */}
         {displayPeers.map((p) => (
           <RemoteTile
             key={p.socketId}
@@ -111,67 +107,109 @@ export default function VideoGrid({
 
 function RemoteTile({ speakerName, remoteObj }) {
   const videoRef = useRef(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef(null);
+  const [hasVideo, setHasVideo] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   const stream = remoteObj?.stream;
   const displayName = speakerName || remoteObj?.speakerName || 'Participant';
 
-  // Attach stream to video element via useEffect — reliable and React-safe
+  // Attach remote stream to BOTH video and audio elements
+  // Using a separate <audio> element ensures audio plays even when
+  // the browser blocks video autoplay. Audio autoplay is less restricted.
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !stream) {
-      setIsPlaying(false);
+    const videoEl = videoRef.current;
+    const audioEl = audioRef.current;
+
+    if (!stream) {
+      setHasVideo(false);
       return;
     }
 
-    if (el.srcObject !== stream) {
-      el.srcObject = stream;
-      el.muted = false;
-      el.volume = 1.0;
+    const videoTracks = stream.getVideoTracks();
+    const audioTracks = stream.getAudioTracks();
+
+    console.log(`[VideoGrid] Remote stream — video tracks: ${videoTracks.length}, audio tracks: ${audioTracks.length}`);
+
+    // ── Video ────────────────────────────────────────────────────────────────
+    if (videoEl && videoTracks.length > 0) {
+      if (videoEl.srcObject !== stream) {
+        videoEl.srcObject = stream;
+        videoEl.muted = true; // start muted — audio handled separately below
+      }
+      videoEl.play().then(() => {
+        setHasVideo(true);
+      }).catch(() => {
+        // Autoplay blocked — still show the element, audio will play via <audio>
+        setHasVideo(false);
+      });
+
+      const onVideoTrackEnabled = () => setHasVideo(videoTracks.some((t) => t.enabled && !t.muted));
+      videoTracks.forEach((t) => {
+        t.onmute = () => setHasVideo(false);
+        t.onunmute = onVideoTrackEnabled;
+        t.onended = () => setHasVideo(false);
+      });
+    } else {
+      setHasVideo(false);
     }
 
-    const tryPlay = () => {
-      el.play()
-        .then(() => setIsPlaying(true))
-        .catch((err) => {
-          // Browsers block autoplay with sound — retry muted then unmute
-          if (err.name === 'NotAllowedError') {
-            el.muted = true;
-            el.play()
-              .then(() => {
-                el.muted = false;
-                setIsPlaying(true);
-              })
-              .catch(() => {});
-          }
-        });
-    };
-
-    tryPlay();
-
-    el.onplaying = () => setIsPlaying(true);
-    el.onpause = () => setIsPlaying(false);
-    el.onwaiting = () => setIsPlaying(false);
+    // ── Audio — dedicated <audio> element, NOT the video element ─────────────
+    // This bypasses video autoplay restrictions on mobile. Browsers allow
+    // <audio> to play after user interaction more liberally than <video>.
+    if (audioEl && audioTracks.length > 0) {
+      // Create audio-only stream to avoid the video element playing audio twice
+      const audioOnlyStream = new MediaStream(audioTracks);
+      if (audioEl.srcObject !== audioOnlyStream) {
+        audioEl.srcObject = audioOnlyStream;
+        audioEl.volume = 1.0;
+        audioEl.muted = false;
+      }
+      audioEl.play().catch((err) => {
+        console.warn('[VideoGrid] Audio autoplay blocked:', err.name);
+        // Even if blocked, unmuting on any user interaction usually works
+      });
+    }
 
     return () => {
-      el.onplaying = null;
-      el.onpause = null;
-      el.onwaiting = null;
+      videoTracks.forEach((t) => {
+        t.onmute = null;
+        t.onunmute = null;
+        t.onended = null;
+      });
     };
   }, [stream]);
 
+  // Try to play audio on any user click (mobile autoplay bypass)
+  const handleUnmute = () => {
+    const audioEl = audioRef.current;
+    if (audioEl) {
+      audioEl.muted = false;
+      audioEl.play().catch(() => {});
+      setIsMuted(false);
+    }
+  };
+
   return (
-    <div className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm">
-      {/* Video element — always mounted so srcObject can be set */}
+    <div
+      className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm cursor-pointer"
+      onClick={handleUnmute}
+    >
+      {/* Dedicated audio element — separate from video for reliable playback */}
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio ref={audioRef} autoPlay playsInline style={{ display: 'none' }} />
+
+      {/* Video element — always in DOM, opacity controlled by track state */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        className={`w-full h-full object-cover transition-opacity duration-300 ${isPlaying ? 'opacity-100' : 'opacity-0'}`}
+        muted
+        className={`w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'}`}
       />
 
-      {/* Avatar overlay — shown until video is playing */}
-      {!isPlaying && (
+      {/* Avatar shown when video is off or no stream yet */}
+      {!hasVideo && (
         <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center gap-2 sm:gap-3 p-4 bg-[var(--surface)]">
           <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-[var(--surface-hover)] border border-[var(--border)] flex items-center justify-center relative">
             <User className="w-7 h-7 sm:w-10 sm:h-10 text-[var(--text-3)]" />
@@ -190,15 +228,27 @@ function RemoteTile({ speakerName, remoteObj }) {
                   Connecting…
                 </>
               ) : (
-                'Camera is off'
+                'Camera off'
               )}
             </p>
           </div>
         </div>
       )}
 
+      {/* Tap to unmute hint — shown only if stream exists but audio may be blocked */}
+      {stream && isMuted && (
+        <button
+          className="absolute top-2 right-2 z-20 p-1.5 rounded-full bg-black/70 text-yellow-400 backdrop-blur-sm"
+          onClick={handleUnmute}
+          title="Tap to enable audio"
+        >
+          <VolumeX className="w-4 h-4" />
+        </button>
+      )}
+
       {/* Name tag */}
-      <div className="absolute bottom-2 left-2 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white backdrop-blur-sm z-10">
+      <div className="absolute bottom-2 left-2 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-black/75 text-[10px] sm:text-[11px] font-medium text-white backdrop-blur-sm z-10 flex items-center gap-1.5">
+        {stream && <Volume2 className="w-3 h-3 text-green-400" />}
         {displayName}
       </div>
     </div>

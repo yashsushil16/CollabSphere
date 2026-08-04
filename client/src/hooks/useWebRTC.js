@@ -1,13 +1,7 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-
-const ICE_CONFIG = {
+// Fallback ICE config used if server fetch fails
+const FALLBACK_ICE_CONFIG = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    // Open relay TURN — for symmetric NAT / mobile cellular
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
     {
       urls: [
         'turn:openrelay.metered.ca:80',
@@ -21,6 +15,28 @@ const ICE_CONFIG = {
   ],
   iceCandidatePoolSize: 10,
 };
+
+let cachedIceConfig = null;
+
+async function getIceConfig() {
+  if (cachedIceConfig) return cachedIceConfig;
+  try {
+    const serverUrl = import.meta.env.VITE_SERVER_URL || '';
+    const res = await fetch(`${serverUrl}/api/rtc-config`, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      cachedIceConfig = data;
+      console.log('[WebRTC] ICE config loaded from server:', JSON.stringify(data.iceServers?.length), 'servers');
+      return cachedIceConfig;
+    }
+  } catch (e) {
+    console.warn('[WebRTC] Could not fetch ICE config from server, using fallback:', e.message);
+  }
+  cachedIceConfig = FALLBACK_ICE_CONFIG;
+  return cachedIceConfig;
+}
+
+
 
 /**
  * Wait for streamRef to be populated — resolves once stream is available
@@ -110,11 +126,13 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
 
   // ── Create RTCPeerConnection for a remote participant ──────────────────────
   // STABLE — uses only refs, never changes reference
-  const createPC = useCallback((remoteSocketId, remoteSpeakerName) => {
+  const createPC = useCallback(async (remoteSocketId, remoteSpeakerName) => {
     if (pcsRef.current[remoteSocketId]) return pcsRef.current[remoteSocketId];
 
-    console.log(`[WebRTC] Creating PC for ${remoteSpeakerName} (${remoteSocketId})`);
-    const pc = new RTCPeerConnection(ICE_CONFIG);
+    const iceConfig = await getIceConfig();
+    console.log(`[WebRTC] Creating PC for ${remoteSpeakerName} (${remoteSocketId}) with ${iceConfig.iceServers?.length} ICE servers`);
+    const pc = new RTCPeerConnection(iceConfig);
+
     pcsRef.current[remoteSocketId] = pc;
     queuesRef.current[remoteSocketId] = [];
 

@@ -40,6 +40,38 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// RTC ICE server configuration — served to clients so TURN credentials
+// can be managed via environment variables on the server.
+app.get('/api/rtc-config', (req, res) => {
+  const iceServers = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+    // Default open relay TURN (public, no key needed)
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+        'turn:openrelay.metered.ca:80?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ];
+
+  // If a custom TURN server is configured via env vars, add it with priority
+  if (process.env.TURN_SERVER_URL) {
+    iceServers.push({
+      urls: process.env.TURN_SERVER_URL.split(','),
+      username: process.env.TURN_USERNAME || '',
+      credential: process.env.TURN_CREDENTIAL || '',
+    });
+    console.log('[RTC Config] Custom TURN server included:', process.env.TURN_SERVER_URL);
+  }
+
+  res.json({ iceServers, iceCandidatePoolSize: 10 });
+});
+
+
 // Domain Knowledge Document Ingestion Endpoint (PDF or TXT)
 app.post('/api/knowledge/upload', upload.single('file'), async (req, res) => {
   try {
