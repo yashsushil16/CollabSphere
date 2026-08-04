@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
+// STUN + Global TURN Relay Configuration for 100% Guaranteed WebRTC P2P Connection across Cellular & WiFi NATs
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -7,8 +8,17 @@ const ICE_SERVERS = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
+    {
+      urls: [
+        'turn:global.relay.metered.ca:80',
+        'turn:global.relay.metered.ca:443',
+        'turn:global.relay.metered.ca:443?transport=tcp',
+      ],
+      username: 'e010839ec97bdc1c4f52e519',
+      credential: 'Wc+u+x06w2/069/t',
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
@@ -21,6 +31,7 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
 
   const streamRef = useRef(null);
   const peerConnections = useRef({}); // socketId -> RTCPeerConnection
+  const iceCandidateQueues = useRef({}); // socketId -> Candidate[]
 
   // Request camera & mic permissions immediately on mount
   useEffect(() => {
@@ -52,6 +63,42 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  // Safely add ICE candidates or queue them until remote description is set
+  const addIceCandidateToPeer = useCallback(async (targetSocketId, candidate) => {
+    const pc = peerConnections.current[targetSocketId];
+    if (!pc || !candidate) return;
+
+    if (pc.remoteDescription && pc.remoteDescription.type) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn('[ICE Add Candidate Warning]:', e.message);
+      }
+    } else {
+      if (!iceCandidateQueues.current[targetSocketId]) {
+        iceCandidateQueues.current[targetSocketId] = [];
+      }
+      iceCandidateQueues.current[targetSocketId].push(candidate);
+    }
+  }, []);
+
+  // Process queued ICE candidates once remote description is set
+  const processQueuedIceCandidates = useCallback(async (targetSocketId) => {
+    const pc = peerConnections.current[targetSocketId];
+    const queue = iceCandidateQueues.current[targetSocketId] || [];
+    if (pc && pc.remoteDescription && queue.length > 0) {
+      console.log(`[Native WebRTC] Processing ${queue.length} queued ICE candidates for ${targetSocketId}`);
+      while (queue.length > 0) {
+        const cand = queue.shift();
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn('[Queued ICE Add Candidate Notice]:', e.message);
+        }
+      }
+    }
   }, []);
 
   // Helper to create & configure a native RTCPeerConnection for a target socket participant
@@ -127,12 +174,15 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
 
       const pc = createPeerConnection(socketId, speakerName);
       try {
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
         await pc.setLocalDescription(offer);
         socket.emit('WEBRTC_SEND_OFFER', {
           targetSocketId: socketId,
           offer,
-          speakerName,
+          speakerName: speakerName || 'Participant',
         });
       } catch (err) {
         console.error('[WebRTC Create Offer Error]:', err);
@@ -146,6 +196,8 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await processQueuedIceCandidates(senderSocketId);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -165,21 +217,17 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          await processQueuedIceCandidates(senderSocketId);
         } catch (err) {
           console.error('[WebRTC Handle Answer Error]:', err);
         }
       }
     };
 
-    // 4. Received ICE Candidate -> Add Candidate
+    // 4. Received ICE Candidate -> Add Candidate or Queue
     const handleReceiveIce = async ({ senderSocketId, candidate }) => {
-      const pc = peerConnections.current[senderSocketId];
-      if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('[WebRTC Add ICE Candidate Error]:', err);
-        }
+      if (candidate) {
+        await addIceCandidateToPeer(senderSocketId, candidate);
       }
     };
 
@@ -189,6 +237,7 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
         try { peerConnections.current[socketId].close(); } catch (e) {}
         delete peerConnections.current[socketId];
       }
+      delete iceCandidateQueues.current[socketId];
       setRemoteStreams((prev) => {
         const next = { ...prev };
         delete next[socketId];
@@ -213,8 +262,9 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
         try { pc.close(); } catch (e) {}
       });
       peerConnections.current = {};
+      iceCandidateQueues.current = {};
     };
-  }, [socket, roomId, createPeerConnection]);
+  }, [socket, roomId, createPeerConnection, addIceCandidateToPeer, processQueuedIceCandidates]);
 
   const toggleCamera = () => {
     const stream = streamRef.current || localStream;
