@@ -1,4 +1,6 @@
-// Fallback ICE config used if server fetch fails
+import { useEffect, useRef, useState, useCallback } from 'react';
+
+// ── ICE Config — fetched from server so TURN credentials are configurable ─────
 const FALLBACK_ICE_CONFIG = {
   iceServers: [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -22,32 +24,30 @@ async function getIceConfig() {
   if (cachedIceConfig) return cachedIceConfig;
   try {
     const serverUrl = import.meta.env.VITE_SERVER_URL || '';
-    const res = await fetch(`${serverUrl}/api/rtc-config`, { signal: AbortSignal.timeout(5000) });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${serverUrl}/api/rtc-config`, { signal: controller.signal });
+    clearTimeout(timer);
     if (res.ok) {
       const data = await res.json();
       cachedIceConfig = data;
-      console.log('[WebRTC] ICE config loaded from server:', JSON.stringify(data.iceServers?.length), 'servers');
+      console.log('[WebRTC] ICE config loaded from server, servers:', data.iceServers?.length);
       return cachedIceConfig;
     }
   } catch (e) {
-    console.warn('[WebRTC] Could not fetch ICE config from server, using fallback:', e.message);
+    console.warn('[WebRTC] ICE config fetch failed, using fallback:', e.message);
   }
   cachedIceConfig = FALLBACK_ICE_CONFIG;
   return cachedIceConfig;
 }
 
+// Warm up ICE config cache on module load (non-blocking)
+getIceConfig().catch(() => {});
 
-
-/**
- * Wait for streamRef to be populated — resolves once stream is available
- * or times out after 8 seconds.
- */
+// ── Wait for local stream to be ready ────────────────────────────────────────
 function waitForStream(streamRef, timeoutMs = 8000) {
   return new Promise((resolve) => {
-    if (streamRef.current) {
-      resolve(streamRef.current);
-      return;
-    }
+    if (streamRef.current) { resolve(streamRef.current); return; }
     const start = Date.now();
     const interval = setInterval(() => {
       if (streamRef.current) {
@@ -55,7 +55,7 @@ function waitForStream(streamRef, timeoutMs = 8000) {
         resolve(streamRef.current);
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(interval);
-        console.warn('[WebRTC] waitForStream timed out — proceeding without local media');
+        console.warn('[WebRTC] waitForStream timed out');
         resolve(null);
       }
     }, 50);
@@ -93,15 +93,11 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
       setLocalStream(stream);
       console.log('[WebRTC] Media acquired:', stream.getTracks().map((t) => t.kind));
 
-      // KEY FIX: If any peer connections were already created before media arrived
-      // (race condition when offer arrives before getUserMedia resolves),
-      // add local tracks to them now.
-      Object.entries(pcsRef.current).forEach(([socketId, pc]) => {
+      // Retroactively add tracks to any PCs created before media was ready
+      Object.entries(pcsRef.current).forEach(([sid, pc]) => {
         if (pc.getSenders().filter((s) => s.track).length === 0) {
-          console.log(`[WebRTC] Retroactively adding tracks to PC for ${socketId}`);
-          stream.getTracks().forEach((track) => {
-            try { pc.addTrack(track, stream); } catch (e) {}
-          });
+          console.log(`[WebRTC] Retroactively adding tracks to PC for ${sid}`);
+          stream.getTracks().forEach((track) => { try { pc.addTrack(track, stream); } catch (e) {} });
         }
       });
     })
@@ -114,7 +110,7 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Cleanup when leaving room ──────────────────────────────────────────────
+  // ── Cleanup peer connections when leaving room ──────────────────────────────
   useEffect(() => {
     if (!roomId) {
       Object.values(pcsRef.current).forEach((pc) => { try { pc.close(); } catch (_) {} });
@@ -124,20 +120,22 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
     }
   }, [roomId]);
 
-  // ── Create RTCPeerConnection for a remote participant ──────────────────────
-  // STABLE — uses only refs, never changes reference
-  const createPC = useCallback(async (remoteSocketId, remoteSpeakerName) => {
+  // ── Create RTCPeerConnection — SYNCHRONOUS wrapper, async ICE fetch inside ──
+  // NOTE: createPC is synchronous so callers don't need to await it.
+  //       It sets up the PC immediately using cached config, or falls back.
+  //       getIceConfig() was pre-warmed on module load so it's usually instant.
+  const createPC = useCallback((remoteSocketId, remoteSpeakerName) => {
     if (pcsRef.current[remoteSocketId]) return pcsRef.current[remoteSocketId];
 
-    const iceConfig = await getIceConfig();
-    console.log(`[WebRTC] Creating PC for ${remoteSpeakerName} (${remoteSocketId}) with ${iceConfig.iceServers?.length} ICE servers`);
-    const pc = new RTCPeerConnection(iceConfig);
+    // Use cached config synchronously (was pre-warmed above), or fallback if not yet ready
+    const iceConfig = cachedIceConfig || FALLBACK_ICE_CONFIG;
+    console.log(`[WebRTC] Creating PC for ${remoteSpeakerName} (${remoteSocketId}) — ${iceConfig.iceServers?.length} ICE servers`);
 
+    const pc = new RTCPeerConnection(iceConfig);
     pcsRef.current[remoteSocketId] = pc;
     queuesRef.current[remoteSocketId] = [];
 
-    // Add local tracks now if available, otherwise they'll be added retroactively
-    // in the media acquisition effect above
+    // Add local tracks if already available
     const stream = streamRef.current;
     if (stream) {
       stream.getTracks().forEach((track) => {
@@ -145,10 +143,10 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
         pc.addTrack(track, stream);
       });
     } else {
-      console.warn(`[WebRTC] Stream not ready for ${remoteSocketId} — will add tracks when media arrives`);
+      console.warn(`[WebRTC] Stream not ready for ${remoteSocketId} — will add retroactively`);
     }
 
-    // Remote track handler
+    // Handle incoming remote tracks
     pc.ontrack = (event) => {
       console.log(`[WebRTC] ontrack from ${remoteSocketId}:`, event.track.kind, 'streams:', event.streams.length);
       if (event.streams && event.streams[0]) {
@@ -158,31 +156,24 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
           [remoteSocketId]: { stream: remoteStream, speakerName: remoteSpeakerName || 'Participant' },
         }));
       } else {
-        // Trackless stream event — build stream manually
         setRemoteStreams((prev) => {
           const existing = prev[remoteSocketId];
           const remoteStream = (existing && existing.stream) || new MediaStream();
           remoteStream.addTrack(event.track);
-          return {
-            ...prev,
-            [remoteSocketId]: { stream: remoteStream, speakerName: remoteSpeakerName || 'Participant' },
-          };
+          return { ...prev, [remoteSocketId]: { stream: remoteStream, speakerName: remoteSpeakerName || 'Participant' } };
         });
       }
     };
 
-    // ICE candidate signaling
+    // ICE signaling
     pc.onicecandidate = (event) => {
       if (event.candidate && socketRef.current) {
-        socketRef.current.emit('WEBRTC_SEND_ICE', {
-          targetSocketId: remoteSocketId,
-          candidate: event.candidate,
-        });
+        socketRef.current.emit('WEBRTC_SEND_ICE', { targetSocketId: remoteSocketId, candidate: event.candidate });
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`[WebRTC] ICE state (${remoteSocketId}): ${pc.iceConnectionState}`);
+      console.log(`[WebRTC] ICE (${remoteSocketId}): ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'failed') {
         console.warn(`[WebRTC] ICE failed for ${remoteSocketId} — restarting`);
         pc.restartIce();
@@ -190,89 +181,70 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Connection state (${remoteSocketId}): ${pc.connectionState}`);
+      console.log(`[WebRTC] Conn (${remoteSocketId}): ${pc.connectionState}`);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
-        setRemoteStreams((prev) => {
-          const next = { ...prev };
-          delete next[remoteSocketId];
-          return next;
-        });
+        setRemoteStreams((prev) => { const n = { ...prev }; delete n[remoteSocketId]; return n; });
       }
     };
 
     return pc;
   }, []); // STABLE
 
-  // ── Drain queued ICE candidates once remote description is set ─────────────
+  // ── Drain queued ICE candidates ─────────────────────────────────────────────
   const drainIceQueue = useCallback(async (remoteSocketId) => {
     const pc = pcsRef.current[remoteSocketId];
     const queue = queuesRef.current[remoteSocketId] || [];
     if (!pc?.remoteDescription?.type || queue.length === 0) return;
 
-    console.log(`[WebRTC] Draining ${queue.length} ICE candidates for ${remoteSocketId}`);
+    console.log(`[WebRTC] Draining ${queue.length} queued ICE candidates for ${remoteSocketId}`);
     queuesRef.current[remoteSocketId] = [];
     for (const cand of queue) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch (e) {
-        console.warn('[WebRTC] ICE drain error:', e.message);
-      }
+      try { await pc.addIceCandidate(new RTCIceCandidate(cand)); }
+      catch (e) { console.warn('[WebRTC] ICE drain error:', e.message); }
     }
   }, []); // STABLE
 
-  // ── WebRTC signaling over Socket.IO ───────────────────────────────────────
+  // ── Signaling handlers ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!socket || !roomId) return;
     console.log('[WebRTC] Binding signaling handlers — socket:', socket.id);
 
-    // Existing user sends offer to newly joining user
     const onNewUserJoined = async ({ socketId, speakerName: remoteName }) => {
       if (socketId === socket.id) return;
       console.log(`[WebRTC] NEW_USER_JOINED: ${remoteName} (${socketId})`);
 
-      // Wait for local stream before creating offer — ensures tracks are included
+      // Wait for local stream so tracks are always included in the offer
       const stream = await waitForStream(streamRef);
-      const pc = createPC(socketId, remoteName);
+      const pc = createPC(socketId, remoteName); // synchronous
 
-      // If stream just arrived and no tracks added yet, add them now
       if (stream && pc.getSenders().filter((s) => s.track).length === 0) {
-        stream.getTracks().forEach((track) => {
-          try { pc.addTrack(track, stream); } catch (e) {}
-        });
+        stream.getTracks().forEach((track) => { try { pc.addTrack(track, stream); } catch (e) {} });
       }
 
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socket.emit('WEBRTC_SEND_OFFER', {
-          targetSocketId: socketId,
-          offer,
-          speakerName: speakerNameRef.current,
-        });
+        socket.emit('WEBRTC_SEND_OFFER', { targetSocketId: socketId, offer, speakerName: speakerNameRef.current });
         console.log(`[WebRTC] Offer sent to ${socketId}`);
       } catch (err) {
         console.error('[WebRTC] createOffer error:', err);
       }
     };
 
-    // New user receives offer, sends answer
     const onReceiveOffer = async ({ senderSocketId, senderSpeakerName, offer }) => {
       console.log(`[WebRTC] Received offer from ${senderSpeakerName} (${senderSocketId})`);
 
-      // CRITICAL: wait for local stream before answering so local tracks are included
       const stream = await waitForStream(streamRef);
-      const pc = createPC(senderSocketId, senderSpeakerName);
+      const pc = createPC(senderSocketId, senderSpeakerName); // synchronous
 
-      // Add tracks if not already added
       if (stream && pc.getSenders().filter((s) => s.track).length === 0) {
-        console.log(`[WebRTC] Adding tracks to PC before answering offer from ${senderSocketId}`);
-        stream.getTracks().forEach((track) => {
-          try { pc.addTrack(track, stream); } catch (e) {}
-        });
+        console.log(`[WebRTC] Adding tracks before answering offer from ${senderSocketId}`);
+        stream.getTracks().forEach((track) => { try { pc.addTrack(track, stream); } catch (e) {} });
       }
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         await drainIceQueue(senderSocketId);
-
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socket.emit('WEBRTC_SEND_ANSWER', { targetSocketId: senderSocketId, answer });
@@ -282,11 +254,10 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
       }
     };
 
-    // Receive answer from peer who answered our offer
     const onReceiveAnswer = async ({ senderSocketId, answer }) => {
       console.log(`[WebRTC] Received answer from ${senderSocketId}`);
       const pc = pcsRef.current[senderSocketId];
-      if (!pc) { console.warn('[WebRTC] No PC for answer from:', senderSocketId); return; }
+      if (!pc) { console.warn('[WebRTC] No PC for answer:', senderSocketId); return; }
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
         await drainIceQueue(senderSocketId);
@@ -295,17 +266,14 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
       }
     };
 
-    // Receive ICE candidate from remote peer
     const onReceiveIce = async ({ senderSocketId, candidate }) => {
       if (!candidate) return;
       const pc = pcsRef.current[senderSocketId];
-
       if (!pc) {
         if (!queuesRef.current[senderSocketId]) queuesRef.current[senderSocketId] = [];
         queuesRef.current[senderSocketId].push(candidate);
         return;
       }
-
       if (pc.remoteDescription?.type) {
         try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); }
         catch (e) { console.warn('[WebRTC] addIceCandidate error:', e.message); }
@@ -314,7 +282,6 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
       }
     };
 
-    // Peer left room
     const onUserLeft = ({ socketId }) => {
       console.log(`[WebRTC] USER_LEFT: ${socketId}`);
       const pc = pcsRef.current[socketId];
@@ -338,19 +305,17 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
     };
   }, [socket, roomId, createPC, drainIceQueue]);
 
-  // ── Toggle camera ──────────────────────────────────────────────────────────
+  // ── Controls ────────────────────────────────────────────────────────────────
   const toggleCamera = useCallback(() => {
     const track = streamRef.current?.getVideoTracks()[0];
     if (track) { track.enabled = !track.enabled; setIsCameraOn(track.enabled); }
   }, []);
 
-  // ── Toggle microphone ──────────────────────────────────────────────────────
   const toggleMicrophone = useCallback(() => {
     const track = streamRef.current?.getAudioTracks()[0];
     if (track) { track.enabled = !track.enabled; setIsMicOn(track.enabled); }
   }, []);
 
-  // ── Toggle screen share ────────────────────────────────────────────────────
   const toggleScreenShare = useCallback(async () => {
     if (!isScreenSharing) {
       try {
