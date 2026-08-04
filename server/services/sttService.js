@@ -106,15 +106,18 @@ export async function transcribeAudioChunk(arrayBuffer, speakerName = "Participa
           return null;
         }
 
-        // Check if text matches known silence/slide hallucination phrases
+        // Check if the entire transcript IS a known noise/hallucination phrase.
+        // IMPORTANT: Only exact-match — never use .includes() on longer real speech.
+        // A transcript like "Hello, my name is Yash" must NOT be filtered just because
+        // it contains the word "hello".
         const isHallucination = SILENCE_HALLUCINATIONS.some(
-          (phrase) => lowerText === phrase || lowerText === phrase + '.' || lowerText.includes(phrase)
+          (phrase) => lowerText === phrase || lowerText === phrase + '.'
         );
 
         if (!isHallucination) {
           return trimmedText;
         } else {
-          console.log(`[STT Service] Filtered Whisper hallucination phrase: "${trimmedText}"`);
+          console.log(`[STT Service] Filtered Whisper hallucination (exact match): "${trimmedText}"`);
         }
       }
     }
