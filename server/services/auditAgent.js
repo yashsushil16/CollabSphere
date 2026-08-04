@@ -2,43 +2,93 @@ import { geminiModel } from '../config/gemini.js';
 import groqClient from '../config/groq.js';
 import { getDomainKnowledgeContext } from './vectorService.js';
 
-let lastGeminiCallTimestamp = 0;
+// Global rate-limit state — prevents hammering either API
+let geminiQuotaExhausted = false;  // Set true on 429, reset after cool-down
+let geminiCoolDownUntil = 0;       // Timestamp until which Gemini is blocked
+let lastGeminiCallAt = 0;
+let lastGroqCallAt = 0;
+
+const GEMINI_MIN_GAP_MS = 8000;  // Max ~7 RPM on free tier (safe margin)
+const GROQ_MIN_GAP_MS = 2000;    // Groq is generous — 2s gap is fine
 
 /**
- * Audit real transcript statements or chat messages using Gemini 1.5 Flash as PRIMARY Fact-Checker
+ * Audit a statement for factual accuracy.
+ *
+ * Priority:
+ *  1. Groq Llama 3.1 8B — fast, free, no quota issues → PRIMARY
+ *  2. Gemini 2.0 Flash   — fallback only if Groq unavailable AND not rate-limited
+ *
+ * Changed from the previous design (Gemini primary) because:
+ * - Gemini free tier has very tight RPM/RPD quotas (15 RPM, 1500 RPD)
+ * - The audit loop fires every 90s but can accumulate many items
+ * - Groq free tier is far more generous (30 RPM, 14400 RPD)
  */
 export async function auditStatement(statement, speakerName, roomId) {
-  if (!statement || statement.trim().length < 5) {
+  if (!statement || statement.trim().length < 10) {
+    return { isFlagged: false };
+  }
+
+  // Statements under 6 words are rarely worth auditing
+  if (statement.trim().split(/\s+/).length < 6) {
     return { isFlagged: false };
   }
 
   const contextDocs = getDomainKnowledgeContext(roomId);
-  const prompt = `
-You are an expert real-time fact-checker for an ongoing meeting platform.
+  const prompt = `You are an expert real-time fact-checker for a business meeting.
 Speaker: "${speakerName}"
 Statement: "${statement}"
-Domain Knowledge Base Context: "${contextDocs || 'No uploaded domain documents provided.'}"
+Domain Context: "${contextDocs || 'No uploaded domain documents.'}"
 
-Task: Determine if the statement contains factual inaccuracies, false metrics, hallucinated claims, or contradicts the uploaded domain context.
-Return strictly valid JSON with no markdown codeblocks:
-{
-  "isFlagged": boolean,
-  "verdict": "TRUE" | "FALSE" | "UNVERIFIED",
-  "statement": "${statement.replace(/"/g, '\\"')}",
-  "correction": "String explaining correction if flagged, or empty string",
-  "confidence": number between 0 and 1
-}
-`;
+Determine if the statement contains clear factual inaccuracies, false metrics, or contradictions.
+Only flag statements that are CLEARLY and VERIFIABLY false — not opinions or uncertain claims.
+Return ONLY valid JSON (no markdown, no code blocks):
+{"isFlagged":boolean,"verdict":"TRUE"|"FALSE"|"UNVERIFIED","statement":"${statement.replace(/"/g, '\\"')}","correction":"explanation if flagged, else empty string","confidence":0.0}`;
 
-  // 1. Primary Engine: Google Gemini 1.5 Flash
-  if (geminiModel) {
-    // Throttle: Ensure at least 4 seconds between Gemini requests to stay under 15 RPM Free Tier limit
+  // ── PRIMARY: Groq Llama 3.1 8B (fast, generous free tier) ─────────────────
+  if (groqClient) {
     const now = Date.now();
-    const timeSinceLastCall = now - lastGeminiCallTimestamp;
-    if (timeSinceLastCall < 4000) {
-      await new Promise((resolve) => setTimeout(resolve, 4000 - timeSinceLastCall));
+    const gap = now - lastGroqCallAt;
+    if (gap < GROQ_MIN_GAP_MS) {
+      await new Promise((r) => setTimeout(r, GROQ_MIN_GAP_MS - gap));
     }
-    lastGeminiCallTimestamp = Date.now();
+    lastGroqCallAt = Date.now();
+
+    try {
+      const completion = await groqClient.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You are a factual audit engine. Return only valid JSON.' },
+          { role: 'user', content: prompt },
+        ],
+        model: 'llama-3.1-8b-instant',
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 200,
+      });
+
+      const parsed = JSON.parse(completion.choices[0].message.content);
+      return {
+        flagId: `flag_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        speakerName,
+        statement,
+        verdict: parsed.verdict || (parsed.isFlagged ? 'FALSE' : 'TRUE'),
+        correction: parsed.correction || '',
+        confidence: parsed.confidence ?? 0.85,
+        isFlagged: Boolean(parsed.isFlagged),
+        timestamp: Date.now(),
+      };
+    } catch (err) {
+      console.warn('[Audit Groq Error]:', err.message);
+    }
+  }
+
+  // ── FALLBACK: Gemini 2.0 Flash (only if Groq failed AND quota not exhausted) ─
+  if (geminiModel && !geminiQuotaExhausted && Date.now() > geminiCoolDownUntil) {
+    const now = Date.now();
+    const gap = now - lastGeminiCallAt;
+    if (gap < GEMINI_MIN_GAP_MS) {
+      await new Promise((r) => setTimeout(r, GEMINI_MIN_GAP_MS - gap));
+    }
+    lastGeminiCallAt = Date.now();
 
     try {
       const result = await geminiModel.generateContent(prompt);
@@ -49,44 +99,23 @@ Return strictly valid JSON with no markdown codeblocks:
       return {
         flagId: `flag_${Date.now()}_${Math.random().toString(36).substring(7)}`,
         speakerName,
-        statement: statement,
+        statement,
         verdict: parsed.verdict || (parsed.isFlagged ? 'FALSE' : 'TRUE'),
         correction: parsed.correction || '',
-        confidence: parsed.confidence || 0.9,
+        confidence: parsed.confidence ?? 0.9,
         isFlagged: Boolean(parsed.isFlagged),
         timestamp: Date.now(),
       };
     } catch (err) {
-      console.warn('[Gemini 1.5 Flash Audit Error]:', err.message);
-    }
-  }
-
-  // 2. Secondary Engine: Groq Llama 3 fallback
-  if (groqClient) {
-    try {
-      const completion = await groqClient.chat.completions.create({
-        messages: [
-          { role: 'system', content: 'You are a factual audit engine. Return only JSON.' },
-          { role: 'user', content: prompt },
-        ],
-        model: 'llama-3.1-8b-instant',
-        response_format: { type: 'json_object' },
-        temperature: 0.1,
-      });
-
-      const parsed = JSON.parse(completion.choices[0].message.content);
-      return {
-        flagId: `flag_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-        speakerName,
-        statement: statement,
-        verdict: parsed.verdict || (parsed.isFlagged ? 'FALSE' : 'TRUE'),
-        correction: parsed.correction || '',
-        confidence: parsed.confidence || 0.9,
-        isFlagged: Boolean(parsed.isFlagged),
-        timestamp: Date.now(),
-      };
-    } catch (err) {
-      console.error('[Groq Audit Error]:', err.message);
+      const msg = err.message || '';
+      if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+        // Back off for 30 minutes when quota is hit
+        geminiQuotaExhausted = true;
+        geminiCoolDownUntil = Date.now() + 30 * 60 * 1000;
+        console.warn('[Audit] Gemini 429 quota hit — disabling for 30 minutes. Using Groq only.');
+      } else {
+        console.warn('[Audit Gemini Error]:', msg);
+      }
     }
   }
 

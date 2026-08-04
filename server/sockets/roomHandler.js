@@ -97,11 +97,12 @@ export function registerRoomHandlers(io, socket) {
     // Notify existing participants of the new user to initiate WebRTC P2P mesh
     socket.to(roomId).emit('NEW_USER_JOINED', participantInfo);
 
-    // Start 15-second Async Hallucination Auditor loop if not already running
+    // Start 90-second Async Fact-Check Auditor loop if not already running.
+    // 90s interval + max 2 items per batch keeps us well under Groq's free tier limits.
     if (!room.auditTimer) {
       room.auditTimer = setInterval(() => {
         runAsyncHallucinationAudit(io, roomId);
-      }, 15000);
+      }, 90000);
     }
   });
 
@@ -320,7 +321,8 @@ async function runAsyncHallucinationAudit(io, roomId) {
   const room = roomStateMap.get(roomId);
   if (!room || room.pendingAuditLogs.length === 0) return;
 
-  const logsToAudit = room.pendingAuditLogs.splice(0, room.pendingAuditLogs.length);
+  // Process max 2 items per batch to stay within free-tier API rate limits
+  const logsToAudit = room.pendingAuditLogs.splice(0, 2);
 
   for (const item of logsToAudit) {
     try {
