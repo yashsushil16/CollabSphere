@@ -138,7 +138,7 @@ export default function VideoGrid({
       >
         {/* ── Local tile ────────────────────────────────────────────────────── */}
         <div
-          className={`relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border transition-colors duration-150 flex items-center justify-center shadow-sm ${
+          className={`relative w-full aspect-video sm:aspect-auto sm:h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-xl overflow-hidden border transition-colors duration-150 flex items-center justify-center shadow-sm ${
             isSpeaking ? 'border-accent-blue' : 'border-[var(--border)]'
           }`}
         >
@@ -147,7 +147,7 @@ export default function VideoGrid({
             autoPlay
             playsInline
             muted
-            className={`w-full h-full object-cover transform -scale-x-100 absolute inset-0 ${isCameraOn && localStream ? 'opacity-100' : 'opacity-0'}`}
+            className={`absolute inset-0 w-full h-full object-cover transform -scale-x-100 transition-opacity duration-300 ${isCameraOn && localStream ? 'opacity-100' : 'opacity-0'}`}
           />
 
           {(!localStream || !isCameraOn) && (
@@ -251,16 +251,16 @@ function RemoteTile({ speakerName, remoteObj }) {
 
   return (
     <div
-      className="relative w-full h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm cursor-pointer"
+      className="relative w-full aspect-video sm:aspect-auto sm:h-full min-h-[160px] sm:min-h-[220px] bg-[var(--surface)] rounded-xl overflow-hidden border border-[var(--border)] flex items-center justify-center shadow-sm cursor-pointer"
       onClick={handleTap}
     >
-      {/* Video — muted (audio via PCM relay) */}
+      {/* Video — muted (audio via PCM relay), absolute inset-0 guarantees fixed tile dimensions */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        className={`w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${hasVideo ? 'opacity-100' : 'opacity-0'}`}
       />
 
       {/* Avatar when no video */}

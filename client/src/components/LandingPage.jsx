@@ -208,22 +208,20 @@ export default function LandingPage({
                       <button
                         type="button"
                         onClick={() => setStartMode('create')}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                          startMode === 'create'
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${startMode === 'create'
                             ? 'bg-blue-600 text-white shadow-md'
                             : 'text-gray-400 hover:text-white'
-                        }`}
+                          }`}
                       >
                         Create Room
                       </button>
                       <button
                         type="button"
                         onClick={() => setStartMode('join')}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                          startMode === 'join'
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${startMode === 'join'
                             ? 'bg-blue-600 text-white shadow-md'
                             : 'text-gray-400 hover:text-white'
-                        }`}
+                          }`}
                       >
                         Join Room
                       </button>
@@ -233,11 +231,10 @@ export default function LandingPage({
                       <button
                         type="button"
                         onClick={onToggleMicrophone}
-                        className={`p-2 rounded-full border transition-all ${
-                          isMicOn
+                        className={`p-2 rounded-full border transition-all ${isMicOn
                             ? 'bg-[#1A1C20] border-[#2A2D34] text-emerald-400 hover:bg-[#22252A]'
                             : 'bg-red-500/10 border-red-500/30 text-red-400'
-                        }`}
+                          }`}
                         title={isMicOn ? 'Microphone On' : 'Microphone Muted'}
                       >
                         {isMicOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
@@ -245,11 +242,10 @@ export default function LandingPage({
                       <button
                         type="button"
                         onClick={onToggleCamera}
-                        className={`p-2 rounded-full border transition-all ${
-                          isCameraOn
+                        className={`p-2 rounded-full border transition-all ${isCameraOn
                             ? 'bg-[#1A1C20] border-[#2A2D34] text-emerald-400 hover:bg-[#22252A]'
                             : 'bg-red-500/10 border-red-500/30 text-red-400'
-                        }`}
+                          }`}
                         title={isCameraOn ? 'Camera On' : 'Camera Off'}
                       >
                         {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
@@ -326,7 +322,7 @@ export default function LandingPage({
                       whileTap={{ scale: 0.98 }}
                       className="w-full py-4 px-6 rounded-full bg-gradient-to-r from-blue-600 via-blue-500 to-emerald-500 text-white font-semibold text-sm shadow-xl shadow-blue-600/30 flex items-center justify-between transition-all group"
                     >
-                      <span className="tracking-wide">Launch Free Room (No Credit Card Required)</span>
+                      <span className="tracking-wide">Launch Free Room Now</span>
                       <span className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:translate-x-1 transition-transform">
                         <ArrowRight className="w-4 h-4" />
                       </span>
