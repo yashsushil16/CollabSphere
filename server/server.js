@@ -45,20 +45,9 @@ app.get('/api/health', (req, res) => {
 app.get('/api/rtc-config', (req, res) => {
   const iceServers = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-    // Default open relay TURN (public, no key needed)
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp',
-        'turn:openrelay.metered.ca:80?transport=tcp',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
   ];
 
-  // If a custom TURN server is configured via env vars, add it with priority
+  // If a custom TURN server is configured via env vars, place it ahead of openrelay fallback
   if (process.env.TURN_SERVER_URL) {
     iceServers.push({
       urls: process.env.TURN_SERVER_URL.split(','),
@@ -67,6 +56,18 @@ app.get('/api/rtc-config', (req, res) => {
     });
     console.log('[RTC Config] Custom TURN server included:', process.env.TURN_SERVER_URL);
   }
+
+  // Default open relay TURN fallback (public, no key needed)
+  iceServers.push({
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+      'turn:openrelay.metered.ca:80?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  });
 
   res.json({ iceServers, iceCandidatePoolSize: 10 });
 });
@@ -126,6 +127,9 @@ httpServer.listen(PORT, async () => {
   console.log(`=======================================================`);
   console.log(`🚀 CollabSphere Server active on port ${PORT}`);
   console.log(`   Real-Time STT | Qdrant RAG | Gemini Audit Agent`);
+  if (process.env.TURN_SERVER_URL) {
+    console.log(`[RTC Config] Custom TURN server included: ${process.env.TURN_SERVER_URL}`);
+  }
   console.log(`=======================================================`);
   await initQdrantCollection();
 });
