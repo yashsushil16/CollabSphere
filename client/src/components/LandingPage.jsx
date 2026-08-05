@@ -88,7 +88,7 @@ export default function LandingPage({
     }, 400);
   };
 
-  // Canvas particle mesh background for guaranteed subtle & immersive animated background
+  // Canvas meeting connectivity mesh background for prominent, immersive animated background
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -107,40 +107,72 @@ export default function LandingPage({
     };
     window.addEventListener('resize', handleResize);
 
-    // Create 45 subtle nodes
-    const nodes = Array.from({ length: 45 }, () => ({
+    // Create meeting participant nodes with pulse animations & data packets
+    const nodes = Array.from({ length: 55 }, () => ({
       x: Math.random() * width,
       y: Math.random() * height,
-      vx: (Math.random() - 0.5) * 0.4,
-      vy: (Math.random() - 0.5) * 0.4,
-      radius: Math.random() * 1.8 + 1,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: (Math.random() - 0.5) * 0.5,
+      radius: Math.random() * 2.5 + 1.5,
+      pulse: Math.random() * Math.PI * 2,
+      isPrimaryNode: Math.random() > 0.75, // 25% primary meeting host/speaker nodes
     }));
+
+    let pulseTime = 0;
 
     const draw = () => {
       ctx.clearRect(0, 0, width, height);
+      pulseTime += 0.02;
 
-      // Draw subtle connecting lines
+      // Draw P2P WebRTC Signal Lines between connected meeting nodes
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const dx = nodes[i].x - nodes[j].x;
           const dy = nodes[i].y - nodes[j].y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 140) {
+          if (dist < 170) {
+            const alpha = 0.35 * (1 - dist / 170);
             ctx.beginPath();
             ctx.moveTo(nodes[i].x, nodes[i].y);
             ctx.lineTo(nodes[j].x, nodes[j].y);
-            ctx.strokeStyle = `rgba(59, 130, 246, ${0.18 * (1 - dist / 140)})`;
-            ctx.lineWidth = 0.8;
+            ctx.strokeStyle = nodes[i].isPrimaryNode || nodes[j].isPrimaryNode
+              ? `rgba(16, 185, 129, ${alpha * 1.2})`
+              : `rgba(59, 130, 246, ${alpha})`;
+            ctx.lineWidth = nodes[i].isPrimaryNode ? 1.2 : 0.8;
             ctx.stroke();
+
+            // Draw traveling data packets between active meeting nodes
+            if (nodes[i].isPrimaryNode && Math.sin(pulseTime * 2 + i) > 0.5) {
+              const progress = (Math.sin(pulseTime * 1.5 + i + j) + 1) / 2;
+              const px = nodes[i].x + (nodes[j].x - nodes[i].x) * progress;
+              const py = nodes[i].y + (nodes[j].y - nodes[i].y) * progress;
+              ctx.beginPath();
+              ctx.arc(px, py, 2, 0, Math.PI * 2);
+              ctx.fillStyle = 'rgba(59, 130, 246, 0.9)';
+              ctx.fill();
+            }
           }
         }
       }
 
-      // Draw and update nodes
+      // Draw participant nodes with glowing pulse rings
       nodes.forEach((node) => {
+        // Outer glowing pulse ring
+        const currentPulse = Math.sin(pulseTime + node.pulse) * 4 + node.radius + 3;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, Math.max(0.5, currentPulse), 0, Math.PI * 2);
+        ctx.strokeStyle = node.isPrimaryNode
+          ? 'rgba(16, 185, 129, 0.25)'
+          : 'rgba(59, 130, 246, 0.2)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Inner solid node core
         ctx.beginPath();
         ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(59, 130, 246, 0.4)';
+        ctx.fillStyle = node.isPrimaryNode
+          ? 'rgba(16, 185, 129, 0.85)'
+          : 'rgba(59, 130, 246, 0.8)';
         ctx.fill();
 
         node.x += node.vx;
@@ -166,20 +198,20 @@ export default function LandingPage({
       ref={containerRef}
       className="min-h-screen bg-[#121316] text-[#F3F4F6] font-sans overflow-x-hidden selection:bg-blue-500/30 relative"
     >
-      {/* Interactive GPU Canvas Particle Mesh Background */}
+      {/* Interactive GPU Canvas Meeting Mesh Background */}
       <canvas
         ref={canvasRef}
-        className="fixed inset-0 pointer-events-none z-0 opacity-75"
+        className="fixed inset-0 pointer-events-none z-0 opacity-90"
       />
 
-      {/* Fixed Subtle Looping Tech Video Background */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden opacity-30">
+      {/* Prominent Looping Meeting Network Video Background */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden opacity-60">
         <video
           autoPlay
           loop
           muted
           playsInline
-          className="w-full h-full object-cover filter brightness-110 contrast-125"
+          className="w-full h-full object-cover filter brightness-125 contrast-125 saturate-150"
         >
           <source
             src="https://assets.mixkit.co/videos/preview/mixkit-abstract-technology-network-mesh-loop-31824-large.mp4"
@@ -190,11 +222,11 @@ export default function LandingPage({
 
       {/* Dynamic Background Mesh Gradients */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute -top-[20%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-blue-600/20 via-emerald-500/10 to-transparent blur-[140px] rounded-full" />
-        <div className="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-blue-500/15 blur-[150px] rounded-full" />
-        <div className="absolute top-[65%] -right-[10%] w-[600px] h-[600px] bg-emerald-500/15 blur-[150px] rounded-full" />
+        <div className="absolute -top-[20%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-blue-600/25 via-emerald-500/15 to-transparent blur-[140px] rounded-full" />
+        <div className="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-blue-500/20 blur-[150px] rounded-full" />
+        <div className="absolute top-[65%] -right-[10%] w-[600px] h-[600px] bg-emerald-500/20 blur-[150px] rounded-full" />
         {/* Subtle grid pattern overlay */}
-        <div className="absolute inset-0 bg-[radial-gradient(#2A2D34_1px,transparent_1px)] [background-size:32px_32px] opacity-30" />
+        <div className="absolute inset-0 bg-[radial-gradient(#2A2D34_1px,transparent_1px)] [background-size:32px_32px] opacity-35" />
       </div>
 
       {/* ── STICKY FLOATING GLASS NAVBAR ──────────────────────────────────── */}
@@ -432,8 +464,10 @@ export default function LandingPage({
                         className="absolute inset-0 w-full h-full object-cover transform -scale-x-100"
                       />
                     ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#1A1C20] to-[#121316] p-6 text-center">
-                        <p className="text-xs font-medium text-gray-400">Turn on camera to preview video tile</p>
+                      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-[#1A1C20] to-[#121316]">
+                        <div className="w-16 h-16 rounded-full bg-[#121316] border border-[#2A2D34] flex items-center justify-center shadow-inner">
+                          <VideoOff className="w-7 h-7 text-gray-500" />
+                        </div>
                       </div>
                     )}
 
