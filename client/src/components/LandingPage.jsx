@@ -93,6 +93,22 @@ export default function LandingPage({
       ref={containerRef}
       className="min-h-screen bg-[#121316] text-[#F3F4F6] font-sans overflow-x-hidden selection:bg-blue-500/30 relative"
     >
+      {/* Fixed Low-Bitrate Looping Abstract Network Mesh Video Background */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden opacity-20 mix-blend-screen">
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="w-full h-full object-cover filter brightness-90 contrast-110"
+        >
+          <source
+            src="https://assets.mixkit.co/videos/preview/mixkit-abstract-technology-network-mesh-loop-31824-large.mp4"
+            type="video/mp4"
+          />
+        </video>
+      </div>
+
       {/* Dynamic Background Mesh Gradients */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div className="absolute -top-[20%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-blue-600/15 via-emerald-500/10 to-transparent blur-[140px] rounded-full" />
@@ -114,7 +130,7 @@ export default function LandingPage({
             <span className="font-bold text-sm sm:text-base tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">
               CollabSphere
             </span>
-            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-400 tracking-wide">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               AI Sub-Agents Active
             </span>
@@ -149,14 +165,14 @@ export default function LandingPage({
       {/* ── HERO SECTION ─────────────────────────────────────────────────── */}
       <section className="relative pt-36 pb-20 sm:pt-44 sm:pb-28 px-4 sm:px-6 max-w-6xl mx-auto z-10">
         <motion.div style={{ y: heroY, opacity: heroOpacity }} className="text-center max-w-4xl mx-auto">
-          {/* Slogan / Eyebrow Pill */}
+          {/* Slogan / Eyebrow Text */}
           <motion.div
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: EASE_CUSTOM }}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold tracking-wide uppercase mb-6 shadow-inner"
+            className="inline-flex items-center gap-2 text-blue-400 text-xs sm:text-sm font-semibold tracking-widest uppercase mb-4"
           >
-            <Activity className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+            <Activity className="w-4 h-4 text-blue-400 animate-pulse" />
             <span>Project meetings made useful.</span>
           </motion.div>
 
@@ -402,7 +418,7 @@ export default function LandingPage({
       {/* ── INTERACTIVE SUB-AGENT SHOWCASE (BENTO ARCHITECTURE) ───────────── */}
       <section id="sub-agents" className="py-24 px-4 sm:px-6 max-w-6xl mx-auto relative z-10">
         <div className="text-center max-w-2xl mx-auto mb-16">
-          <span className="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+          <span className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
             Autonomous Pipeline
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-white mt-4 tracking-tight">
@@ -642,7 +658,7 @@ export default function LandingPage({
         <div className="p-8 sm:p-12 rounded-[2.5rem] bg-gradient-to-b from-[#1A1C20] to-[#121316] border border-[#2A2D34] shadow-2xl relative overflow-hidden space-y-6">
           <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-          <span className="px-3.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider text-blue-400 bg-blue-500/10 border border-blue-500/20">
+          <span className="text-xs font-semibold uppercase tracking-widest text-blue-400">
             Instant Start
           </span>
 
