@@ -143,6 +143,18 @@ export function registerRoomHandlers(io, socket) {
     socket.to(roomId).emit('PCM_RELAY_CHUNK', { pcm, speakerId });
   });
 
+  // 1D. WEBRTC CONNECTION STATS & QUOTA MONITORING
+  socket.on('WEBRTC_CONNECTION_REPORT', ({ roomId, targetSocketId, targetSpeakerName, connectionType, candidateType }) => {
+    const isTurn = connectionType && connectionType.includes('TURN');
+    const logTag = isTurn
+      ? '⚠️ [TURN RELAY - CONSUMING QUOTA]'
+      : '✅ [P2P DIRECT STUN - FREE]';
+
+    console.log(
+      `[WebRTC Monitor] Room "${roomId}": ${socket.speakerName || socket.id} -> ${targetSpeakerName || targetSocketId} | Connection: ${logTag} (Candidate: ${candidateType})`
+    );
+  });
+
 
   // 2A. DIRECT TEXT TRANSCRIPT FROM BROWSER WEBSPEECH API
   socket.on('TRANSCRIPT_TEXT', async (data) => {

@@ -185,8 +185,46 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
       }
     };
 
-    pc.oniceconnectionstatechange = () => {
+    pc.oniceconnectionstatechange = async () => {
       console.log(`[WebRTC] ICE (${remoteSocketId}): ${pc.iceConnectionState}`);
+
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        try {
+          const stats = await pc.getStats();
+          let isRelay = false;
+          let candidateType = 'unknown';
+
+          stats.forEach((report) => {
+            if (report.type === 'candidate-pair' && (report.state === 'succeeded' || report.nominated)) {
+              const localCand = stats.get(report.localCandidateId);
+              const remoteCand = stats.get(report.remoteCandidateId);
+              const lType = localCand?.candidateType;
+              const rType = remoteCand?.candidateType;
+
+              candidateType = lType || rType || 'unknown';
+              if (lType === 'relay' || rType === 'relay') {
+                isRelay = true;
+              }
+            }
+          });
+
+          const connectionType = isRelay ? 'TURN RELAY (Quota Consumed)' : 'P2P DIRECT (STUN - Free)';
+          console.log(`[WebRTC Relay Monitor] ${remoteSpeakerName || remoteSocketId}: ${connectionType} [Candidate: ${candidateType}]`);
+
+          if (socketRef.current) {
+            socketRef.current.emit('WEBRTC_CONNECTION_REPORT', {
+              roomId,
+              targetSocketId: remoteSocketId,
+              targetSpeakerName: remoteSpeakerName,
+              connectionType,
+              candidateType,
+            });
+          }
+        } catch (err) {
+          console.warn('[WebRTC] getStats error:', err.message);
+        }
+      }
+
       if (pc.iceConnectionState === 'failed') {
         console.warn(`[WebRTC] ICE failed for ${remoteSocketId} — restarting`);
         pc.restartIce();
