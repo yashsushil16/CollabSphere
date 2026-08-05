@@ -88,19 +88,98 @@ export default function LandingPage({
     }, 400);
   };
 
+  // Canvas particle mesh background for guaranteed subtle & immersive animated background
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+
+    let width = (canvas.width = window.innerWidth);
+    let height = (canvas.height = window.innerHeight);
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    };
+    window.addEventListener('resize', handleResize);
+
+    // Create 45 subtle nodes
+    const nodes = Array.from({ length: 45 }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      radius: Math.random() * 1.8 + 1,
+    }));
+
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      // Draw subtle connecting lines
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[i].x - nodes[j].x;
+          const dy = nodes[i].y - nodes[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 140) {
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.strokeStyle = `rgba(59, 130, 246, ${0.18 * (1 - dist / 140)})`;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Draw and update nodes
+      nodes.forEach((node) => {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.4)';
+        ctx.fill();
+
+        node.x += node.vx;
+        node.y += node.vy;
+
+        if (node.x < 0 || node.x > width) node.vx *= -1;
+        if (node.y < 0 || node.y > height) node.vy *= -1;
+      });
+
+      animationFrameId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
+
   return (
     <div
       ref={containerRef}
       className="min-h-screen bg-[#121316] text-[#F3F4F6] font-sans overflow-x-hidden selection:bg-blue-500/30 relative"
     >
-      {/* Fixed Low-Bitrate Looping Abstract Network Mesh Video Background */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden opacity-20 mix-blend-screen">
+      {/* Interactive GPU Canvas Particle Mesh Background */}
+      <canvas
+        ref={canvasRef}
+        className="fixed inset-0 pointer-events-none z-0 opacity-75"
+      />
+
+      {/* Fixed Subtle Looping Tech Video Background */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden opacity-30">
         <video
           autoPlay
           loop
           muted
           playsInline
-          className="w-full h-full object-cover filter brightness-90 contrast-110"
+          className="w-full h-full object-cover filter brightness-110 contrast-125"
         >
           <source
             src="https://assets.mixkit.co/videos/preview/mixkit-abstract-technology-network-mesh-loop-31824-large.mp4"
@@ -111,22 +190,17 @@ export default function LandingPage({
 
       {/* Dynamic Background Mesh Gradients */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute -top-[20%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-blue-600/15 via-emerald-500/10 to-transparent blur-[140px] rounded-full" />
-        <div className="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-blue-500/10 blur-[150px] rounded-full" />
-        <div className="absolute top-[65%] -right-[10%] w-[600px] h-[600px] bg-emerald-500/10 blur-[150px] rounded-full" />
+        <div className="absolute -top-[20%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-blue-600/20 via-emerald-500/10 to-transparent blur-[140px] rounded-full" />
+        <div className="absolute top-[40%] -left-[10%] w-[600px] h-[600px] bg-blue-500/15 blur-[150px] rounded-full" />
+        <div className="absolute top-[65%] -right-[10%] w-[600px] h-[600px] bg-emerald-500/15 blur-[150px] rounded-full" />
         {/* Subtle grid pattern overlay */}
-        <div className="absolute inset-0 bg-[radial-gradient(#2A2D34_1px,transparent_1px)] [background-size:32px_32px] opacity-25" />
+        <div className="absolute inset-0 bg-[radial-gradient(#2A2D34_1px,transparent_1px)] [background-size:32px_32px] opacity-30" />
       </div>
 
       {/* ── STICKY FLOATING GLASS NAVBAR ──────────────────────────────────── */}
       <header className="fixed top-4 inset-x-0 z-50 px-4 sm:px-8">
         <div className="max-w-6xl mx-auto backdrop-blur-xl bg-[#1A1C20]/80 border border-[#2A2D34] rounded-full px-5 py-2.5 flex items-center justify-between shadow-2xl shadow-black/40">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-emerald-400 p-[1px] flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <div className="w-full h-full bg-[#121316] rounded-full flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-blue-400" />
-              </div>
-            </div>
             <span className="font-bold text-sm sm:text-base tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">
               CollabSphere
             </span>
@@ -359,11 +433,7 @@ export default function LandingPage({
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-[#1A1C20] to-[#121316] p-6 text-center">
-                        <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-3">
-                          <Bot className="w-8 h-8 text-blue-400 animate-bounce" />
-                        </div>
-                        <p className="text-xs font-semibold text-gray-300">Live AI Sub-Agent Mesh Ready</p>
-                        <p className="text-[11px] text-gray-500 mt-1">Turn on camera to preview video tile</p>
+                        <p className="text-xs font-medium text-gray-400">Turn on camera to preview video tile</p>
                       </div>
                     )}
 
