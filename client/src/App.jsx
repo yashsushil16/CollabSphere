@@ -40,10 +40,8 @@ const TABS = [
 ];
 
 const generateRandomRoomCode = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `cs-${part1}-${part2}`;
+  const letters = 'abcdefghijklmnopqrstuvwxyz';
+  return Array.from({ length: 5 }, () => letters[Math.floor(Math.random() * letters.length)]).join('');
 };
 
 export default function App() {
@@ -304,7 +302,7 @@ export default function App() {
                   required
                   value={roomId}
                   onChange={(e) => {
-                    const val = e.target.value;
+                    const val = e.target.value.toLowerCase();
                     if (val.includes('room=')) {
                       const match = val.match(/room=([^&]+)/);
                       setRoomId(match ? match[1] : val);
@@ -312,7 +310,7 @@ export default function App() {
                       setRoomId(val);
                     }
                   }}
-                  placeholder="e.g. cs-4k9m-8x2b"
+                  placeholder="e.g. kxpyz"
                   className="w-full px-3 py-3 rounded-lg bg-[var(--canvas)] border border-[var(--border)] focus:border-accent-blue font-mono text-xs text-[var(--text-1)] placeholder-[var(--text-3)] outline-none transition-colors"
                 />
               </div>
