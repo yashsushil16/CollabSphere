@@ -40,24 +40,46 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// RTC ICE server configuration — served to clients so TURN credentials
-// can be managed via environment variables on the server.
-app.get('/api/rtc-config', (req, res) => {
+// RTC ICE server configuration — served to clients with STUN prioritization
+// and short-lived / protected TURN credentials to optimize bandwidth.
+app.get('/api/rtc-config', async (req, res) => {
+  const { roomId } = req.query;
+
+  // 1. STUN Prioritization: Always place public STUN servers at the TOP
+  // so WebRTC attempts direct P2P connections first before attempting TURN relay.
   const iceServers = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
   ];
 
-  // If a custom TURN server is configured via env vars, place it ahead of openrelay fallback
-  if (process.env.TURN_SERVER_URL) {
+  // 2. Dynamic Short-Lived Credentials via Metered REST API (if configured)
+  if (process.env.METERED_API_KEY && process.env.METERED_DOMAIN) {
+    try {
+      const meteredRes = await fetch(
+        `https://${process.env.METERED_DOMAIN}.metered.live/api/v1/turn/credentials?apiKey=${process.env.METERED_API_KEY}`
+      );
+      if (meteredRes.ok) {
+        const dynamicTurn = await meteredRes.json();
+        if (Array.isArray(dynamicTurn)) {
+          iceServers.push(...dynamicTurn);
+          console.log('[RTC Config] Dynamic short-lived Metered TURN credentials generated');
+        }
+      }
+    } catch (err) {
+      console.warn('[RTC Config] Failed to fetch dynamic Metered credentials:', err.message);
+    }
+  }
+
+  // 3. Static Env Custom TURN (Served to session users with room/context check)
+  if (process.env.TURN_SERVER_URL && (!process.env.METERED_API_KEY || iceServers.length === 1)) {
     iceServers.push({
       urls: process.env.TURN_SERVER_URL.split(','),
       username: process.env.TURN_USERNAME || '',
       credential: process.env.TURN_CREDENTIAL || '',
+      ttl: 3600, // 1 hour session TTL recommendation
     });
-    console.log('[RTC Config] Custom TURN server included:', process.env.TURN_SERVER_URL);
   }
 
-  // Default open relay TURN fallback (public, no key needed)
+  // 4. Default open relay TURN fallback (public, last resort)
   iceServers.push({
     urls: [
       'turn:openrelay.metered.ca:80',
@@ -69,7 +91,7 @@ app.get('/api/rtc-config', (req, res) => {
     credential: 'openrelayproject',
   });
 
-  res.json({ iceServers, iceCandidatePoolSize: 10 });
+  res.json({ iceServers, iceCandidatePoolSize: 10, ttl: 3600 });
 });
 
 

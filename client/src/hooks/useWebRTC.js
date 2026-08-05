@@ -20,13 +20,14 @@ const FALLBACK_ICE_CONFIG = {
 
 let cachedIceConfig = null;
 
-async function getIceConfig() {
+async function getIceConfig(roomId) {
   if (cachedIceConfig) return cachedIceConfig;
   try {
     const serverUrl = import.meta.env.VITE_SERVER_URL || '';
+    const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : '';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(`${serverUrl}/api/rtc-config`, { signal: controller.signal });
+    const res = await fetch(`${serverUrl}/api/rtc-config${query}`, { signal: controller.signal });
     clearTimeout(timer);
     if (res.ok) {
       const data = await res.json();
@@ -79,12 +80,24 @@ export const useWebRTC = (roomId, speakerId, speakerName, socket) => {
   useEffect(() => { speakerNameRef.current = speakerName; }, [speakerName]);
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
+  // Fetch ICE config with roomId context when room is specified
+  useEffect(() => {
+    if (roomId) {
+      getIceConfig(roomId).catch(() => {});
+    }
+  }, [roomId]);
+
   // ── Acquire media ONCE on mount ────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
 
     navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      video: {
+        width: { ideal: 640, max: 640 },
+        height: { ideal: 480, max: 480 },
+        frameRate: { ideal: 15, max: 20 },
+        facingMode: 'user',
+      },
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
     .then((stream) => {
